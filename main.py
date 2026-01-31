@@ -25,17 +25,38 @@ def keep_alive():
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 LOFI_PLAYLIST = [
-    "https://soundcloud.com/lofi-girl-records/lofi-girl-favorites-08-01-2025",
-    "https://soundcloud.com/chilledcow/sets/lofi-hip-hop-radio-beats-to",
-    "https://soundcloud.com/jake-aws/sets/lofi-study",
+    "https://soundcloud.com/relaxing-music-production/sets/piano-for-studying",
 ]
 
 QUOTES = [
+    # --- HỆ CODER (Dành cho dân IT) ---
     "Code chạy rồi thì ĐỪNG CÓ SỬA NỮA! 🛑",
     "Một ngày code, 23 giờ fix bug. Cố lên! 🐛",
-    "Ngồi thẳng lưng lên! Còng lưng là lương không tăng đâu! 🦴",
+    "Đừng deploy vào thứ 6, và đừng lười vào thứ 2! 📅",
+    "Feature này không lỗi, đó là tính năng ẩn đấy! 😎",
+    "Ngồi thẳng lưng lên! Còng lưng là lương không tăng đâu! a🦴",
+    "Bạn có chắc là đã lưu file chưa? Ctrl+S cái nữa cho chắc! 💾",
+    "Cao thủ không bằng tranh thủ. Code lẹ đi ngủ nào! 💤",
+
+    # --- HỆ "TƯ BẢN" (Động lực bằng tiền) ---
     "Kiến thức hôm nay là 'Sổ đỏ' ngày mai! 🏠",
-    "Uống ngụm nước, vươn vai cái rồi học tiếp! 💧"
+    "Làm việc đi, Tư bản không nuôi người lười đâu! 💸",
+    "Đừng để số dư tài khoản buồn, hãy làm cho nó vui! 💰",
+    "Khổ trước sướng sau, thế mới giàu! 🚀",
+    "Ngủ giờ này thì chỉ có mơ thấy tiền, chứ không kiếm được tiền đâu! 😴",
+
+    # --- HỆ "CÀ KHỊA" (Tỉnh ngủ ngay) ---
+    "Deadline dí tới mông rồi kìa, chạy lẹ đi! 🔥",
+    "Việc hôm nay chớ để ngày mai, vì ngày mai... lười y hệt hôm nay! 🐸",
+    "Thất bại là mẹ thành công, nhưng thất học là mẹ của nghèo khổ! 📚",
+    "Áp lực tạo kim cương, nhưng đừng tự tạo nghiệp là được! 💎",
+    "Đừng nhìn màn hình nữa, nhìn vào tương lai tăm tối nếu không học kìa! 🌑",
+
+    # --- HỆ "CHILL" (Nhắc nhở nhẹ nhàng) ---
+    "Uống ngụm nước đi, não cần nước để tưới mát! 💧",
+    "Hít thở sâu nào... Rồi code tiếp! 🍃",
+    "Mắt mỏi chưa? Nhìn ra xa 20 giây đi bạn ơi! 👀",
+    "Thương bản thân thì học cho xong đi rồi ngủ ngon! ❤️"
 ]
 
 intents = discord.Intents.default()
