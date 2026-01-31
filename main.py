@@ -6,12 +6,12 @@ from discord.ext import commands
 from flask import Flask
 from threading import Thread
 
-# --- PHẦN 1: WEB SERVER ẢO (Giữ bot sống trên Render) ---
+# --- PHẦN 1: WEB SERVER (Giữ bot sống trên Render) ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Discord (SoundCloud Edition) đang chạy!"
+    return "Bot SoundCloud đang chạy ổn định!"
 
 def run_web():
     # Render yêu cầu chạy ở port 10000
@@ -24,34 +24,36 @@ def keep_alive():
 # --- PHẦN 2: CẤU HÌNH BOT ---
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Cấp quyền cho bot
+# Cấp quyền
 intents = discord.Intents.default()
-intents.message_content = True # Để đọc tin nhắn
-intents.voice_states = True    # Để quản lý voice
+intents.message_content = True
+intents.voice_states = True 
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Cấu hình yt-dlp chuyên cho SoundCloud (scsearch)
+# Cấu hình yt-dlp (Thêm User-Agent để tránh bị chặn)
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'noplaylist': 'True',
     'quiet': True,
     'default_search': 'scsearch', # Mặc định tìm trên SoundCloud
     'source_address': '0.0.0.0',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
 }
 
-# Cấu hình FFmpeg để stream mượt, tự kết nối lại nếu rớt mạng
+# Cấu hình FFmpeg (QUAN TRỌNG: Fix lỗi ngắt kết nối 4006 và allowed_extensions)
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn' # Không lấy hình ảnh
+    'before_options': (
+        '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 '
+        '-protocol_whitelist file,http,https,tcp,tls,crypto '
+        '-allowed_extensions ALL' 
+    ),
+    'options': '-vn'
 }
 
-# --- PHẦN 3: CÁC SỰ KIỆN VÀ LỆNH ---
+# --- PHẦN 3: LOGIC BOT ---
 
 @bot.event
 async def on_ready():
@@ -60,13 +62,12 @@ async def on_ready():
 
 @bot.command()
 async def play(ctx, *, query):
-    """Phát nhạc từ SoundCloud. Ví dụ: !play đen vâu"""
+    """Phát nhạc từ SoundCloud (Fix lỗi disconnect)"""
     
-    # 1. Kiểm tra Voice
+    # 1. Kiểm tra và vào phòng Voice
     if not ctx.author.voice:
         return await ctx.send("❌ Bạn phải vào phòng Voice trước đã!")
     
-    # 2. Kết nối Bot vào phòng
     if not ctx.voice_client:
         await ctx.author.voice.channel.connect()
     elif ctx.voice_client.channel != ctx.author.voice.channel:
@@ -74,16 +75,16 @@ async def play(ctx, *, query):
     
     await ctx.send(f"☁️ Đang tìm trên SoundCloud: **{query}**...")
     
-    # 3. Tìm và phát nhạc
     try:
-        # Nếu query là link (http...) thì để nguyên, nếu là từ khóa thì thêm scsearch:
+        # 2. Xử lý tìm kiếm (Link hoặc Từ khóa)
+        # Nếu không phải link http thì thêm scsearch: vào đầu
         search_query = query if query.startswith('http') else f"scsearch:{query}"
 
-        # Chạy yt-dlp trong luồng riêng để không làm đơ bot
+        # Chạy yt-dlp trong luồng riêng (Non-blocking)
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_OPTIONS).extract_info(search_query, download=False))
 
-        # Xử lý kết quả tìm kiếm (SoundCloud thường trả về danh sách 'entries')
+        # Lấy thông tin bài hát đầu tiên
         if 'entries' in data:
             data = data['entries'][0]
             
@@ -93,39 +94,37 @@ async def play(ctx, *, query):
 
         vc = ctx.voice_client
         
-        # Nếu đang hát bài khác thì dừng
+        # 3. Phát nhạc
         if vc.is_playing():
             vc.stop()
             
-        # Phát nhạc
+        # Truyền options đã fix lỗi vào đây
         vc.play(discord.FFmpegPCMAudio(song_url, **FFMPEG_OPTIONS))
         
         await ctx.send(f"🎶 Đang phát: **{title}** - {artist}")
         
     except Exception as e:
-        print(f"Lỗi: {e}")
-        await ctx.send("❌ Không tìm thấy bài hát hoặc lỗi kết nối SoundCloud.")
+        print(f"Lỗi Play: {e}")
+        await ctx.send("❌ Lỗi: Không thể phát bài này (Thử bài khác xem sao).")
 
 @bot.command()
 async def stop(ctx):
-    """Dừng nhạc và mời bot ra ngoài"""
+    """Dừng nhạc và thoát"""
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
-        await ctx.send("👋 Bye bye! Hẹn gặp lại.")
-    else:
-        await ctx.send("Bot có ở trong phòng đâu mà đuổi?")
+        await ctx.send("👋 Bye bye!")
 
 @bot.command()
 async def skip(ctx):
-    """Bỏ qua bài hiện tại (Nếu đang dùng chế độ playlist - Code này hiện tại chỉ stop)"""
+    """Bỏ qua bài hiện tại"""
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
-        await ctx.send("⏭️ Đã bỏ qua bài hát.")
+        await ctx.send("⏭️ Next!")
 
-# --- PHẦN 4: CHẠY ---
+# --- PHẦN 4: KHỞI CHẠY ---
 if __name__ == "__main__":
-    keep_alive() # Khởi động Web Server
+    keep_alive() # Bật Web Server
     if TOKEN:
         bot.run(TOKEN)
     else:
-        print("❌ Lỗi: Chưa tìm thấy biến môi trường DISCORD_TOKEN")
+        print("❌ Lỗi: Chưa có DISCORD_TOKEN trong Environment Variables")
