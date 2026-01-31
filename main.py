@@ -3,7 +3,7 @@ import os
 import asyncio
 import yt_dlp
 import random
-from groq import Groq  # Thư viện Groq thay cho Google
+from groq import AsyncGroq 
 from discord.ext import commands, tasks
 from flask import Flask
 from threading import Thread
@@ -13,7 +13,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Study (Groq AI) Online!"
+    return "ITUS Bot (Bestie Salty Ver) Online!"
 
 def run_web():
     app.run(host='0.0.0.0', port=10000)
@@ -26,49 +26,47 @@ def keep_alive():
 TOKEN = os.getenv('DISCORD_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
-# Cấu hình AI Groq
+# Cấu hình AI Groq (ASYNC)
 client = None
 if GROQ_API_KEY:
-    client = Groq(api_key=GROQ_API_KEY)
+    client = AsyncGroq(api_key=GROQ_API_KEY)
 else:
     print("⚠️ Chưa có GROQ_API_KEY. Chat AI sẽ không chạy.")
 
-# Persona của Bot
-SYSTEM_PROMPT = "Bạn là một người bạn học tập (Study Buddy), tên là MituBot, môt thành viên của đại gia đình ITUS, thân thiện, hài hước, nói tiếng Việt. Bạn thích nghe nhạc Lofi và luôn động viên bạn bè học bài. Trả lời hài hước, dí dỏm, thích dùng emoiji 🤣,😏,🙄,😌,😴,🥱,🤯,🥸,🤓,🙂‍↕️,🤫,🤭 tùy theo ngữ cảnh."
+# --- PERSONA ITUS BOT (HỆ CHỊ EM BẠN DÌ) ---
+SYSTEM_PROMPT = """
+Bạn là ITUS Bot, một người bạn thân thiết (bestie) của sinh viên ITUS.
+Cách xưng hô: Xưng 'Tui', gọi người dùng là 'Pà' (hoặc 'Mấy pà', 'Bà').
+Tính cách: Xéo xắt, hài hước, hay cà khịa nhưng rất quan tâm. Giọng điệu tự nhiên như bạn bè tám chuyện.
+Style: Dùng emoji vui vẻ, thoải mái (🤣, 👌, 💅, ✨, 🌚, 🔪).
+Ví dụ: "Sao dzạ pà?", "Học lẹ đi má ơi!", "Trời ơi tin được hông, bug này mà cũng để xảy ra á!".
+"""
 
 LOFI_PLAYLIST = [
     "https://soundcloud.com/relaxing-music-production/sets/piano-for-studying",
 ]
 
+# --- KHO QUOTE "MẶN CHÁT" (Cập nhật mới) ---
 QUOTES = [
-    # --- HỆ CODER (Dành cho dân IT) ---
-    "Code chạy rồi thì ĐỪNG CÓ SỬA NỮA! 🛑",
-    "Một ngày code, 23 giờ fix bug. Cố lên! 🐛",
-    "Đừng deploy vào thứ 6, và đừng lười vào thứ 2! 📅",
-    "Feature này không lỗi, đó là tính năng ẩn đấy! 😎",
-    "Ngồi thẳng lưng lên! Còng lưng là lương không tăng đâu! a🦴",
-    "Bạn có chắc là đã lưu file chưa? Ctrl+S cái nữa cho chắc! 💾",
-    "Cao thủ không bằng tranh thủ. Code lẹ đi ngủ nào! 💤",
+    # Hệ Cà Khịa Cực Mạnh
+    "Học không chơi đánh rơi tuổi trẻ, mà chơi không học là bán rẻ tương lai nha pà! 🌚",
+    "Người yêu cũ nó có bồ mới rồi kìa, pà còn ngồi đó chưa fix xong bug hả? 💅",
+    "Deadline dí tới mông rồi mà vẫn ung dung lướt TikTok, gan pà lớn thiệt á! 🔪",
+    "Rớt môn là tốn tiền học lại đó, tiền đó để đi đu idol sướng hơn hông? 💸",
+    "Đừng để nước tới chân mới nhảy, nhảy hông kịp đâu, chết chìm đó má ơi! 🌊",
+    "Nhìn cái màn hình đen thui, chắc tương lai pà cũng... à mà thôi học đi! 🤣",
+    
+    # Hệ Dân IT (Sự thật mất lòng)
+    "Code chạy được thì ĐỪNG CÓ SỬA, tui lạy pà đó! 🙏",
+    "Bug là tính năng, nhưng bug nhiều quá là do... nhân phẩm pà đó! 😎",
+    "Một bug, hai bug, ba bug... Thôi đi ngủ đi, càng sửa càng nát à! 😴",
+    "Nhớ Ctrl+S chưa dzạ? Mất code là tui cười vô mặt chứ hông ai cứu đâu nha! 💾",
 
-    # --- HỆ "TƯ BẢN" (Động lực bằng tiền) ---
-    "Kiến thức hôm nay là 'Sổ đỏ' ngày mai! 🏠",
-    "Làm việc đi, Tư bản không nuôi người lười đâu! 💸",
-    "Đừng để số dư tài khoản buồn, hãy làm cho nó vui! 💰",
-    "Khổ trước sướng sau, thế mới giàu! 🚀",
-    "Ngủ giờ này thì chỉ có mơ thấy tiền, chứ không kiếm được tiền đâu! 😴",
-
-    # --- HỆ "CÀ KHỊA" (Tỉnh ngủ ngay) ---
-    "Deadline dí tới mông rồi kìa, chạy lẹ đi! 🔥",
-    "Việc hôm nay chớ để ngày mai, vì ngày mai... lười y hệt hôm nay! 🐸",
-    "Thất bại là mẹ thành công, nhưng thất học là mẹ của nghèo khổ! 📚",
-    "Áp lực tạo kim cương, nhưng đừng tự tạo nghiệp là được! 💎",
-    "Đừng nhìn màn hình nữa, nhìn vào tương lai tăm tối nếu không học kìa! 🌑",
-
-    # --- HỆ "CHILL" (Nhắc nhở nhẹ nhàng) ---
-    "Uống ngụm nước đi, não cần nước để tưới mát! 💧",
-    "Hít thở sâu nào... Rồi code tiếp! 🍃",
-    "Mắt mỏi chưa? Nhìn ra xa 20 giây đi bạn ơi! 👀",
-    "Thương bản thân thì học cho xong đi rồi ngủ ngon! ❤️"
+    # Hệ Quan Tâm (Nhưng vẫn xéo xắt)
+    "Uống miếng nước đi, da dẻ hồng hào code nó mới mượt, ngồi khô queo ai nhìn! 💧",
+    "Thức khuya ít thôi, mắt thâm như gấu trúc rồi, ai mà thèm yêu! 🐼",
+    "Học lẹ đi rồi đi ngủ, tui thấy pà ngáp nãy giờ 80 lần rồi đó! 🥱",
+    "Tắt cái tab Facebook giùm tui cái, tui méc giảng viên bây giờ! 👀"
 ]
 
 intents = discord.Intents.default()
@@ -104,7 +102,7 @@ async def send_to_voice(ctx, message, delete_after=None):
     else:
         await ctx.send(message, delete_after=delete_after)
 
-# --- SỰ KIỆN CHAT AI (GROQ) ---
+# --- SỰ KIỆN CHAT AI ---
 @bot.event
 async def on_message(message):
     if message.author == bot.user: return
@@ -115,24 +113,24 @@ async def on_message(message):
     # Chat khi tag @Bot
     if bot.user.mentioned_in(message):
         if not client:
-            await message.reply("❌ Chủ nhân chưa cài não (Groq API) cho tôi!")
+            await message.reply("🥺 Tui chưa được cài não (Groq API) rùi pà ơi...")
             return
 
         async with message.channel.typing():
             try:
                 user_content = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
                 if not user_content:
-                    await message.reply("Tag mình làm gì thế? Hỏi bài hay tâm sự đi! 👀")
+                    await message.reply("Sao dzạ pà? Kêu tui chi á? 👀")
                     return
 
-                # Gửi request sang Groq
-                chat_completion = client.chat.completions.create(
+                chat_completion = await client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": user_content}
                     ],
-                    model="llama3-8b-8192", # Model miễn phí, siêu nhanh
+                    model="llama-3.3-70b-versatile", # Model xịn nhất
                     max_tokens=1024,
+                    temperature=0.8 # Tăng độ sáng tạo cho nó mặn hơn
                 )
                 
                 reply = chat_completion.choices[0].message.content
@@ -145,15 +143,15 @@ async def on_message(message):
 
             except Exception as e:
                 print(f"Lỗi AI: {e}")
-                await message.reply("Não mình đang load chậm quá, thử lại sau nha! 😵‍💫")
+                await message.reply("Mạng mẽo chán quá pà ơi, load hổng nổi luôn á! 😵‍💫")
 
 # --- CÁC LỆNH KHÁC ---
 
 @bot.command()
 async def help(ctx):
-    embed = discord.Embed(title="🤖 BOT STUDY MATE", description="Tag `@Bot` để chat với AI (Llama 3)!", color=0x00ff00)
-    embed.add_field(name="Chat AI", value="Tag tên bot để hỏi đáp, tâm sự.", inline=False)
-    embed.add_field(name="Lệnh", value="`!pomo`: Học + Nhạc\n`!play`: Nhạc\n`!skip`: Qua bài\n`!stop`: Nghỉ", inline=False)
+    embed = discord.Embed(title="✨ ITUS Bot (Hệ Mặn Mòi) ✨", description="Tag `@ITUS Bot` để nghe tui cà khịa nha!", color=0xffb6c1) 
+    embed.add_field(name="💌 Tám Chuyện", value="Tag tên tui để hỏi bài hoặc than thở.", inline=False)
+    embed.add_field(name="🎶 Nghe Nhạc", value="`!pomo`, `!play`, `!stop` - Tui cân hết!", inline=False)
     await ctx.send(embed=embed)
 
 def check_queue(ctx):
@@ -192,21 +190,21 @@ async def play_source(ctx, query, is_autoplay=False):
         vc.play(transformed_source, after=lambda e: check_queue(ctx))
         
         if not is_autoplay:
-            await send_to_voice(ctx, f"🎶 Đang phát: **{title}**")
+            await send_to_voice(ctx, f"🎶 Đang phát **{title}** cho pà nghe nè! ✨")
             
     except Exception as e:
-        print(f"Lỗi: {e}")
+        print(f"Lỗi Play: {e}")
         check_queue(ctx)
 
 async def run_pomodoro(ctx, work, break_time):
     guild_id = ctx.guild.id
     while pomo_sessions.get(guild_id, False):
-        await send_to_voice(ctx, f"🍅 **BẮT ĐẦU HỌC! ({work}p)**\nCất điện thoại đi nhé!")
+        await send_to_voice(ctx, f"🍅 **TẬP TRUNG NHA PÀ ƠI! ({work}p)**\nCất cái điện thoại giùm tui cái, tui canh chừng rồi! 😎")
         for _ in range(work * 60):
             if not pomo_sessions.get(guild_id, False): return
             await asyncio.sleep(1)
         if not pomo_sessions.get(guild_id, False): return
-        await send_to_voice(ctx, f"☕ **GIẢI LAO! ({break_time}p)**\nĐứng dậy vươn vai nào!")
+        await send_to_voice(ctx, f"☕ **NGHỈ XÍU ĐI PÀ! ({break_time}p)**\nĐứng dậy vươn vai, đi uống nước đi! 🙆‍♂️")
         for _ in range(break_time * 60):
             if not pomo_sessions.get(guild_id, False): return
             await asyncio.sleep(1)
@@ -215,23 +213,23 @@ async def run_pomodoro(ctx, work, break_time):
 async def pomo(ctx, work: int = 25, break_time: int = 5):
     guild_id = ctx.guild.id
     if pomo_sessions.get(guild_id, False):
-        return await send_to_voice(ctx, "⚠️ Đang chạy rồi! Gõ `!stop_pomo` để tắt.", delete_after=5)
+        return await send_to_voice(ctx, "⚠️ Tui đang canh giờ rồi mà! Muốn dừng thì bảo `!stop_pomo` ha.", delete_after=5)
     
     if ctx.author.voice:
         if not ctx.voice_client: await ctx.author.voice.channel.connect()
         if not ctx.voice_client.is_playing():
              random_playlist = random.choice(LOFI_PLAYLIST)
              await play_source(ctx, random_playlist, is_autoplay=True)
-             await send_to_voice(ctx, "🎶 Đã tự động bật nhạc Lofi!", delete_after=5)
+             await send_to_voice(ctx, "🎶 Tui bật nhạc Lofi cho pà tập trung nha! ✨", delete_after=5)
 
     pomo_sessions[guild_id] = True
-    await send_to_voice(ctx, f"✅ **Pomodoro Start:** {work}p Học / {break_time}p Nghỉ.")
+    await send_to_voice(ctx, f"✅ **Pomodoro Start:** {work}p Học / {break_time}p Nghỉ.\nRáng học đi nha pà! 🥰")
     bot.loop.create_task(run_pomodoro(ctx, work, break_time))
 
 @bot.command()
 async def stop_pomo(ctx):
     pomo_sessions[ctx.guild.id] = False
-    await send_to_voice(ctx, "🛑 Đã dừng Pomodoro.", delete_after=5)
+    await send_to_voice(ctx, "🛑 Rồi, cho pà nghỉ xả hơi đó! Giỏi quá chừng! ❤️", delete_after=5)
 
 @bot.event
 async def on_ready():
@@ -241,14 +239,14 @@ async def on_ready():
 
 @bot.command()
 async def play(ctx, *, query):
-    if not ctx.author.voice: return await ctx.send("❌ Vào voice đi!", delete_after=5)
+    if not ctx.author.voice: return await ctx.send("❌ Vào phòng Voice với tui đi đã pà ơi! 🥺", delete_after=5)
     if not ctx.voice_client: await ctx.author.voice.channel.connect()
     if ctx.guild.id not in queues: queues[ctx.guild.id] = []
     
     vc = ctx.voice_client
     if vc.is_playing():
         queues[ctx.guild.id].append(query)
-        await send_to_voice(ctx, f"✅ Đã thêm queue: **{query}**", delete_after=5)
+        await send_to_voice(ctx, f"✅ Tui thêm **{query}** vào hàng đợi rùi nha! ✨", delete_after=5)
     else:
         await play_source(ctx, query)
 
@@ -256,7 +254,7 @@ async def play(ctx, *, query):
 async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
-        await send_to_voice(ctx, "⏭️ Skip!", delete_after=5)
+        await send_to_voice(ctx, "⏭️ Okie, qua bài khác liền! 😋", delete_after=5)
 
 @bot.command()
 async def stop(ctx):
@@ -264,7 +262,7 @@ async def stop(ctx):
     if ctx.voice_client:
         ctx.voice_client.stop()
         await ctx.voice_client.disconnect()
-        await send_to_voice(ctx, "👋 Bye!", delete_after=5)
+        await send_to_voice(ctx, "👋 Tui đi ngủ đây, pà cũng nghỉ ngơi đi nha! Bye bye! 💖", delete_after=5)
 
 @bot.command()
 async def volume(ctx, vol: int):
@@ -273,14 +271,14 @@ async def volume(ctx, vol: int):
         DEFAULT_VOLUME = vol / 100
         if ctx.voice_client and ctx.voice_client.source:
             ctx.voice_client.source.volume = DEFAULT_VOLUME
-        await send_to_voice(ctx, f"🔊 Vol: {vol}%", delete_after=5)
+        await send_to_voice(ctx, f"🔊 Tui chỉnh loa mức **{vol}%** rồi nha! 👌", delete_after=5)
 
 @tasks.loop(minutes=45) 
 async def send_motivation():
     for vc in bot.voice_clients:
         if len(vc.channel.members) > 1:
             try:
-                await vc.channel.send(f"🔔 **Nhắc nhở:** {random.choice(QUOTES)}")
+                await vc.channel.send(f"🔔 **Nhắc nhẹ:** {random.choice(QUOTES)}")
             except: pass
 
 @send_motivation.before_loop
