@@ -13,7 +13,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "ITUS Bot (Real Bestie Ver) Online!"
+    return "ITUS Bot (Smart Reply) Online!"
 
 def run_web():
     app.run(host='0.0.0.0', port=10000)
@@ -33,27 +33,24 @@ if GROQ_API_KEY:
 else:
     print("⚠️ Chưa có GROQ_API_KEY. Chat AI sẽ không chạy.")
 
-# --- PERSONA ITUS BOT (REAL BESTIE - ÍT ICON) ---
-# Tinh chỉnh lại Prompt để bot nói chuyện tự nhiên, ít "văn mẫu"
+# --- PERSONA ITUS BOT (HỆ CHỊ EM BẠN DÌ) ---
 SYSTEM_PROMPT = """
-Bạn là ITUS Bot, bạn thân (bestie) của user.
-QUY TẮC NÓI CHUYỆN (BẮT BUỘC):
-1. Xưng hô: "tui" - "pà" (hoặc "mấy pà").
-2. Style: Nói chuyện ngắn gọn, tự nhiên, giống nhắn tin Facebook/Zalo. 
-3. Format: Viết thường, không cần viết hoa đầu câu quá nghiêm túc. Dùng từ ngữ đời thường (dzạ, nè, ha, á, code, fix bug).
-4. QUAN TRỌNG: HẠN CHẾ EMOJI. Chỉ dùng tối đa 1 cái emoji ở cuối câu nếu cần. Tuyệt đối không spam icon giữa câu.
-5. Nội dung: Đừng khuyên răn dài dòng như sách giáo khoa. Hãy trả lời phũ phàng nhưng hài hước.
+Bạn là ITUS Bot, bestie (bạn thân) của sinh viên ITUS.
+QUY TẮC:
+1. Xưng hô: "tui" - "pà".
+2. Style: Nói ngắn gọn, tự nhiên, viết thường (lowercase), không văn mẫu.
+3. Emoji: Dùng RẤT ÍT (max 1 cái/câu), hoặc không dùng.
+4. Thái độ: Hơi xéo xắt, phũ phàng nhưng quan tâm.
 Ví dụ:
-- "sao dzạ pà?"
-- "học lẹ đi má ơi, than hoài 🌚"
-- "trời ơi tin được hông, code chạy rùi nè"
+- "học lẹ đi má, than hoài"
+- "sao dzạ? bí code hả?"
+- "trời ơi tin được hông, bug này mà cũng để sót á"
 """
 
 LOFI_PLAYLIST = [
     "https://soundcloud.com/relaxing-music-production/sets/piano-for-studying",
 ]
 
-# --- KHO QUOTE "MẶN MÒI" ---
 QUOTES = [
     "học đi má, người yêu cũ nó có bồ mới rùi kìa 🌚",
     "đừng để nước tới chân mới nhảy, chết chìm đó pà ơi 🌊",
@@ -97,25 +94,48 @@ async def send_to_voice(ctx, message, delete_after=None):
     else:
         await ctx.send(message, delete_after=delete_after)
 
-# --- SỰ KIỆN CHAT AI ---
+# --- SỰ KIỆN CHAT AI (THÔNG MINH HƠN) ---
 @bot.event
 async def on_message(message):
+    # 1. Bỏ qua tin nhắn của chính mình
     if message.author == bot.user: return
+    
+    # 2. Ưu tiên xử lý lệnh (!)
     if message.content.startswith('!'):
         await bot.process_commands(message)
         return
 
-    # Chat khi tag @Bot
+    # 3. Logic: Có cần trả lời không?
+    should_reply = False
+    
+    # Trường hợp A: Được Tag trực tiếp (@ITUS Bot) -> Luôn trả lời
     if bot.user.mentioned_in(message):
+        should_reply = True
+        
+    # Trường hợp B: "Không gian riêng tư" (Trong Voice chỉ có 2 đứa)
+    # Kiểm tra người chat có đang ở trong Voice không
+    elif message.author.voice and message.author.voice.channel:
+        user_voice = message.author.voice.channel
+        # Kiểm tra Bot có đang ở chung phòng đó không
+        if message.guild.voice_client and message.guild.voice_client.channel == user_voice:
+            # Kiểm tra quân số: Nếu chỉ có 2 thành viên (Pà + Tui)
+            if len(user_voice.members) == 2:
+                should_reply = True
+
+    # 4. Xử lý trả lời
+    if should_reply:
         if not client:
             await message.reply("🥺 tui chưa có não (Groq API) rùi pà ơi...")
             return
 
         async with message.channel.typing():
             try:
+                # Lọc bỏ phần tag tên bot (nếu có)
                 user_content = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
+                
+                # Nếu chat trống trơn (chỉ tag hoặc không nói gì)
                 if not user_content:
-                    await message.reply("sao dzạ pà? kêu tui chi á? 👀")
+                    await message.reply("sao dzạ? kêu tui chi á? 👀")
                     return
 
                 chat_completion = await client.chat.completions.create(
@@ -125,12 +145,11 @@ async def on_message(message):
                     ],
                     model="llama-3.3-70b-versatile", 
                     max_tokens=1024,
-                    temperature=0.7 # Giữ mức này để nó sáng tạo vừa phải
+                    temperature=0.7 
                 )
                 
                 reply = chat_completion.choices[0].message.content
                 
-                # Logic chia nhỏ tin nhắn nếu dài quá
                 if len(reply) > 2000:
                     for i in range(0, len(reply), 2000):
                         await message.reply(reply[i:i+2000])
@@ -139,15 +158,13 @@ async def on_message(message):
 
             except Exception as e:
                 print(f"Lỗi AI: {e}")
-                # Không gửi tin nhắn lỗi vào chat nữa để tránh spam nếu mạng lag
-                # Chỉ in ra log server thôi
 
 # --- CÁC LỆNH KHÁC ---
 
 @bot.command()
 async def help(ctx):
-    embed = discord.Embed(title="✨ ITUS Bot ✨", description="Tag `@ITUS Bot` để tám chuyện nha!", color=0xffb6c1) 
-    embed.add_field(name="💌 Tám Chuyện", value="Tag tên tui để hỏi bài hoặc than thở.", inline=False)
+    embed = discord.Embed(title="✨ ITUS Bot ✨", description="Chỉ cần vào phòng Voice với tui là tám xuyên màn đêm nha!", color=0xffb6c1) 
+    embed.add_field(name="💌 Tám Chuyện", value="Tag `@ITUS Bot` hoặc cứ nói trân trân nếu chỉ có 2 đứa mình.", inline=False)
     embed.add_field(name="🎶 Nghe Nhạc", value="`!pomo`, `!play`, `!stop`", inline=False)
     await ctx.send(embed=embed)
 
