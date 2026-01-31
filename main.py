@@ -13,7 +13,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "ITUS Bot (Smart Reply) Online!"
+    return "ITUS Bot (Clean Mode) Online!"
 
 def run_web():
     app.run(host='0.0.0.0', port=10000)
@@ -33,18 +33,15 @@ if GROQ_API_KEY:
 else:
     print("⚠️ Chưa có GROQ_API_KEY. Chat AI sẽ không chạy.")
 
-# --- PERSONA ITUS BOT (HỆ CHỊ EM BẠN DÌ) ---
+# --- PERSONA ---
 SYSTEM_PROMPT = """
-Bạn là ITUS Bot, bestie (bạn thân) của sinh viên ITUS.
+Bạn là ITUS Bot, bestie của sinh viên ITUS.
 QUY TẮC:
 1. Xưng hô: "tui" - "pà".
-2. Style: Nói ngắn gọn, tự nhiên, viết thường (lowercase), không văn mẫu.
-3. Emoji: Dùng RẤT ÍT (max 1 cái/câu), hoặc không dùng.
-4. Thái độ: Hơi xéo xắt, phũ phàng nhưng quan tâm.
-Ví dụ:
-- "học lẹ đi má, than hoài"
-- "sao dzạ? bí code hả?"
-- "trời ơi tin được hông, bug này mà cũng để sót á"
+2. Style: Nói ngắn gọn, tự nhiên, viết thường (lowercase).
+3. Emoji: Cực ít (max 1 cái/câu).
+4. Thái độ: Xéo xắt nhưng quan tâm.
+Ví dụ: "học đi má, than hoài", "sao dzạ? bí code hả?"
 """
 
 LOFI_PLAYLIST = [
@@ -53,7 +50,6 @@ LOFI_PLAYLIST = [
 
 QUOTES = [
     "học đi má, người yêu cũ nó có bồ mới rùi kìa 🌚",
-    "đừng để nước tới chân mới nhảy, chết chìm đó pà ơi 🌊",
     "deadline dí tới mông rồi mà vẫn lướt top top hả, gan dữ 🔪",
     "code chạy được thì đừng có sửa, lạy pà đó 🙏",
     "một bug, hai bug, ba bug... đi ngủ đi, càng sửa càng nát à 😴",
@@ -87,55 +83,47 @@ FFMPEG_OPTIONS = {
     'options': '-vn'
 }
 
-# --- HÀM GỬI TIN NHẮN ---
-async def send_to_voice(ctx, message, delete_after=None):
-    if ctx.voice_client and ctx.voice_client.channel:
-        await ctx.voice_client.channel.send(message, delete_after=delete_after)
-    else:
-        await ctx.send(message, delete_after=delete_after)
+# --- HÀM GỬI TIN NHẮN (CÓ TỰ HỦY) ---
+# Mặc định tin nhắn sẽ tự xóa sau 60 giây để đỡ rác phòng
+async def send_to_voice(ctx, message, delete_after=60):
+    try:
+        if ctx.voice_client and ctx.voice_client.channel:
+            await ctx.voice_client.channel.send(message, delete_after=delete_after)
+        else:
+            await ctx.send(message, delete_after=delete_after)
+    except:
+        pass # Nếu lỗi quyền hạn thì bỏ qua
 
-# --- SỰ KIỆN CHAT AI (THÔNG MINH HƠN) ---
+# --- SỰ KIỆN CHAT AI ---
 @bot.event
 async def on_message(message):
-    # 1. Bỏ qua tin nhắn của chính mình
     if message.author == bot.user: return
-    
-    # 2. Ưu tiên xử lý lệnh (!)
     if message.content.startswith('!'):
         await bot.process_commands(message)
         return
 
-    # 3. Logic: Có cần trả lời không?
     should_reply = False
     
-    # Trường hợp A: Được Tag trực tiếp (@ITUS Bot) -> Luôn trả lời
+    # Case A: Tag Bot
     if bot.user.mentioned_in(message):
         should_reply = True
-        
-    # Trường hợp B: "Không gian riêng tư" (Trong Voice chỉ có 2 đứa)
-    # Kiểm tra người chat có đang ở trong Voice không
+    # Case B: Không gian riêng tư (2 người)
     elif message.author.voice and message.author.voice.channel:
         user_voice = message.author.voice.channel
-        # Kiểm tra Bot có đang ở chung phòng đó không
         if message.guild.voice_client and message.guild.voice_client.channel == user_voice:
-            # Kiểm tra quân số: Nếu chỉ có 2 thành viên (Pà + Tui)
             if len(user_voice.members) == 2:
                 should_reply = True
 
-    # 4. Xử lý trả lời
     if should_reply:
         if not client:
-            await message.reply("🥺 tui chưa có não (Groq API) rùi pà ơi...")
+            await message.reply("🥺 tui chưa có não (Groq API) rùi pà ơi...", delete_after=10)
             return
 
         async with message.channel.typing():
             try:
-                # Lọc bỏ phần tag tên bot (nếu có)
                 user_content = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
-                
-                # Nếu chat trống trơn (chỉ tag hoặc không nói gì)
                 if not user_content:
-                    await message.reply("sao dzạ? kêu tui chi á? 👀")
+                    await message.reply("sao dzạ? kêu tui chi á? 👀", delete_after=10)
                     return
 
                 chat_completion = await client.chat.completions.create(
@@ -149,13 +137,12 @@ async def on_message(message):
                 )
                 
                 reply = chat_completion.choices[0].message.content
-                
+                # Chat AI thì KHÔNG xóa, để người dùng đọc lại
                 if len(reply) > 2000:
                     for i in range(0, len(reply), 2000):
                         await message.reply(reply[i:i+2000])
                 else:
                     await message.reply(reply)
-
             except Exception as e:
                 print(f"Lỗi AI: {e}")
 
@@ -163,10 +150,11 @@ async def on_message(message):
 
 @bot.command()
 async def help(ctx):
-    embed = discord.Embed(title="✨ ITUS Bot ✨", description="Chỉ cần vào phòng Voice với tui là tám xuyên màn đêm nha!", color=0xffb6c1) 
-    embed.add_field(name="💌 Tám Chuyện", value="Tag `@ITUS Bot` hoặc cứ nói trân trân nếu chỉ có 2 đứa mình.", inline=False)
-    embed.add_field(name="🎶 Nghe Nhạc", value="`!pomo`, `!play`, `!stop`", inline=False)
-    await ctx.send(embed=embed)
+    embed = discord.Embed(title="✨ ITUS Bot ✨", description="Phòng Voice sạch đẹp, không spam!", color=0xffb6c1) 
+    embed.add_field(name="💌 Tám Chuyện", value="Tag tui hoặc nói chuyện tự nhiên (nếu chỉ có 2 đứa).", inline=False)
+    embed.add_field(name="🎶 Tính Năng", value="Tự out phòng khi vắng, tự xóa tin nhắn rác.", inline=False)
+    # Help thì để lâu chút (120s) cho đọc
+    await send_to_voice(ctx, embed=embed, delete_after=120)
 
 def check_queue(ctx):
     guild_id = ctx.guild.id
@@ -204,7 +192,8 @@ async def play_source(ctx, query, is_autoplay=False):
         vc.play(transformed_source, after=lambda e: check_queue(ctx))
         
         if not is_autoplay:
-            await send_to_voice(ctx, f"🎶 đang phát **{title}** cho pà nghe nè ✨")
+            # Thông báo bài hát chỉ hiện 2 phút rồi biến mất
+            await send_to_voice(ctx, f"🎶 đang phát **{title}** cho pà nghe nè ✨", delete_after=120)
             
     except Exception as e:
         print(f"Lỗi Play: {e}")
@@ -213,12 +202,14 @@ async def play_source(ctx, query, is_autoplay=False):
 async def run_pomodoro(ctx, work, break_time):
     guild_id = ctx.guild.id
     while pomo_sessions.get(guild_id, False):
-        await send_to_voice(ctx, f"🍅 **TẬP TRUNG NHA PÀ ƠI ({work}p)**\ncất cái điện thoại giùm tui cái, tui canh chừng rùi 😎")
+        # Thông báo Pomo hiện 1 phút rồi xóa
+        await send_to_voice(ctx, f"🍅 **TẬP TRUNG NHA PÀ ({work}p)**\ncất cái điện thoại giùm, tui canh rùi 😎", delete_after=60)
         for _ in range(work * 60):
             if not pomo_sessions.get(guild_id, False): return
             await asyncio.sleep(1)
         if not pomo_sessions.get(guild_id, False): return
-        await send_to_voice(ctx, f"☕ **NGHỈ XÍU ĐI PÀ ({break_time}p)**\nđứng dậy vươn vai, đi uống nước đi 🙆‍♂️")
+        
+        await send_to_voice(ctx, f"☕ **NGHỈ XÍU ĐI PÀ ({break_time}p)**\nđứng dậy vươn vai điii 🙆‍♂️", delete_after=60)
         for _ in range(break_time * 60):
             if not pomo_sessions.get(guild_id, False): return
             await asyncio.sleep(1)
@@ -234,33 +225,52 @@ async def pomo(ctx, work: int = 25, break_time: int = 5):
         if not ctx.voice_client.is_playing():
              random_playlist = random.choice(LOFI_PLAYLIST)
              await play_source(ctx, random_playlist, is_autoplay=True)
-             await send_to_voice(ctx, "🎶 tui bật nhạc lofi cho pà tập trung nha ✨", delete_after=5)
+             await send_to_voice(ctx, "🎶 tui bật nhạc lofi cho pà tập trung nha ✨", delete_after=10)
 
     pomo_sessions[guild_id] = True
-    await send_to_voice(ctx, f"✅ **Pomodoro Start:** {work}p Học / {break_time}p Nghỉ.\nráng học đi nha pà 🥰")
+    await send_to_voice(ctx, f"✅ **Pomodoro Start:** {work}p Học / {break_time}p Nghỉ.\nráng học đi nha pà 🥰", delete_after=60)
     bot.loop.create_task(run_pomodoro(ctx, work, break_time))
 
 @bot.command()
 async def stop_pomo(ctx):
     pomo_sessions[ctx.guild.id] = False
-    await send_to_voice(ctx, "🛑 rùi, cho pà nghỉ xả hơi đó, giỏi quá chừng ❤️", delete_after=5)
+    await send_to_voice(ctx, "🛑 rùi, cho pà nghỉ xả hơi đó ❤️", delete_after=10)
 
 @bot.event
 async def on_ready():
     print(f'✅ Bot Online: {bot.user}')
     if not send_motivation.is_running():
         send_motivation.start()
+    if not auto_leave.is_running():
+        auto_leave.start()
 
+# --- AUTO LEAVE (TỰ ĐỘNG OUT) ---
+@tasks.loop(minutes=1)
+async def auto_leave():
+    for vc in bot.voice_clients:
+        if len(vc.channel.members) == 1:
+            await vc.disconnect()
+            if vc.guild.id in queues: queues[vc.guild.id].clear()
+            if pomo_sessions.get(vc.guild.id, False): pomo_sessions[vc.guild.id] = False
+            # Tin nhắn tạm biệt tự xóa sau 10s
+            try: await vc.channel.send("mấy pà đi hết rùi, tui đi ngủ lun nha, bái bai 👻", delete_after=10)
+            except: pass
+
+@auto_leave.before_loop
+async def before_auto_leave():
+    await bot.wait_until_ready()
+
+# --- CÁC LỆNH KHÁC ---
 @bot.command()
 async def play(ctx, *, query):
-    if not ctx.author.voice: return await ctx.send("❌ vào phòng voice với tui đi đã pà ơi 🥺", delete_after=5)
+    if not ctx.author.voice: return await ctx.send("❌ vào phòng voice đi pà ơi 🥺", delete_after=5)
     if not ctx.voice_client: await ctx.author.voice.channel.connect()
     if ctx.guild.id not in queues: queues[ctx.guild.id] = []
     
     vc = ctx.voice_client
     if vc.is_playing():
         queues[ctx.guild.id].append(query)
-        await send_to_voice(ctx, f"✅ tui thêm **{query}** vào hàng đợi rùi nha ✨", delete_after=5)
+        await send_to_voice(ctx, f"✅ tui thêm **{query}** vào hàng đợi rùi nha ✨", delete_after=10)
     else:
         await play_source(ctx, query)
 
@@ -276,7 +286,7 @@ async def stop(ctx):
     if ctx.voice_client:
         ctx.voice_client.stop()
         await ctx.voice_client.disconnect()
-        await send_to_voice(ctx, "👋 tui đi ngủ đây, pà cũng nghỉ ngơi đi nha, bái bai 💖", delete_after=5)
+        await send_to_voice(ctx, "👋 tui đi ngủ đây, bái bai 💖", delete_after=10)
 
 @bot.command()
 async def volume(ctx, vol: int):
@@ -292,7 +302,8 @@ async def send_motivation():
     for vc in bot.voice_clients:
         if len(vc.channel.members) > 1:
             try:
-                await vc.channel.send(f"🔔 **nhắc nhẹ:** {random.choice(QUOTES)}")
+                # Quote động lực thì để lâu chút (5 phút) cho ngấm
+                await vc.channel.send(f"🔔 **nhắc nhẹ:** {random.choice(QUOTES)}", delete_after=300)
             except: pass
 
 @send_motivation.before_loop
