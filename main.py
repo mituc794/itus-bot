@@ -12,7 +12,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Study (Playlist Support) Online!"
+    return "Bot Study (Full Version) Online!"
 
 def run_web():
     app.run(host='0.0.0.0', port=10000)
@@ -24,10 +24,8 @@ def keep_alive():
 # --- CẤU HÌNH ---
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Bạn có thể dán link Playlist SoundCloud vào đây thoải mái
 LOFI_PLAYLIST = [
-    "https://soundcloud.com/lofi-girl-records/lofi-girl-favorites-08-01-2025",
-    "https://soundcloud.com/chilledcow/sets/lofi-hip-hop-radio-beats-to",
+    "https://soundcloud.com/relaxdaily/sets/deep-focus-music-studying-concentration-work",
 ]
 
 QUOTES = [
@@ -65,7 +63,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True 
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+# Tắt help mặc định để dùng help tự chế
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 queues = {}
 pomo_sessions = {}
@@ -73,15 +72,13 @@ DEFAULT_VOLUME = 0.5
 
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
-    'noplaylist': 'True', # Mẹo: Để True để lấy metadata nhanh, ta sẽ tự xử lý playlist trong code
-    'extract_flat': 'in_playlist', # Chỉ lấy danh sách bài, không tải chi tiết vội (tăng tốc độ)
+    'noplaylist': 'True', 
+    'extract_flat': 'in_playlist',
     'quiet': True,
     'default_search': 'scsearch', 
     'source_address': '0.0.0.0',
     'http_headers': {'User-Agent': 'Mozilla/5.0...'}
 }
-
-# Cấu hình tải chi tiết cho từng bài lẻ
 YTDL_SINGLE_OPTIONS = YTDL_OPTIONS.copy()
 YTDL_SINGLE_OPTIONS['noplaylist'] = True
 YTDL_SINGLE_OPTIONS['extract_flat'] = False
@@ -91,7 +88,55 @@ FFMPEG_OPTIONS = {
     'options': '-vn'
 }
 
-# --- LOGIC XỬ LÝ NHẠC ---
+# --- LỆNH HELP (MỚI THÊM) ---
+
+@bot.command()
+async def help(ctx):
+    embed = discord.Embed(
+        title="🤖 HƯỚNG DẪN SỬ DỤNG BOT",
+        description="Bot hỗ trợ học tập: Nhạc SoundCloud + Pomodoro + Động lực",
+        color=0x00ff00 # Màu xanh lá
+    )
+    
+    # Cột 1: Nhạc
+    embed.add_field(
+        name="🎵 Âm Nhạc (SoundCloud)",
+        value=(
+            "`!play <tên/link>`: Phát nhạc (Hỗ trợ Playlist)\n"
+            "`!skip`: Qua bài\n"
+            "`!stop`: Dừng nhạc & Xóa hàng chờ\n"
+            "`!volume <0-100>`: Chỉnh âm lượng\n"
+            "`!queue`: Xem danh sách chờ"
+        ),
+        inline=False
+    )
+    
+    # Cột 2: Học tập
+    embed.add_field(
+        name="🍅 Pomodoro (Học/Nghỉ)",
+        value=(
+            "`!pomo`: Bắt đầu (25p Học / 5p Nghỉ)\n"
+            "`!pomo <học> <nghỉ>`: Tùy chỉnh (VD: !pomo 50 10)\n"
+            "`!stop_pomo`: Dừng tính giờ"
+        ),
+        inline=False
+    )
+    
+    # Cột 3: Tính năng ẩn
+    embed.add_field(
+        name="✨ Tính Năng Tự Động",
+        value=(
+            "- **Autoplay:** Hết nhạc tự động bật Lofi Radio.\n"
+            "- **Động lực:** Nhắc nhở, gửi quote mỗi 45 phút.\n"
+            "- **Clean Chat:** Tự xóa tin nhắn rác sau 5s."
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="Code by You | Chúc bạn học tốt! 🚀")
+    await ctx.send(embed=embed)
+
+# --- LOGIC NHẠC ---
 
 def check_queue(ctx):
     guild_id = ctx.guild.id
@@ -100,7 +145,6 @@ def check_queue(ctx):
         coro = play_source(ctx, query)
         asyncio.run_coroutine_threadsafe(coro, bot.loop)
     else:
-        # Auto-play: Lấy ngẫu nhiên playlist rồi bốc ngẫu nhiên bài trong đó
         random_playlist = random.choice(LOFI_PLAYLIST)
         coro = play_source(ctx, random_playlist, is_autoplay=True)
         asyncio.run_coroutine_threadsafe(coro, bot.loop)
@@ -110,49 +154,33 @@ async def play_source(ctx, query, is_autoplay=False):
         search_query = query if query.startswith('http') else f"scsearch:{query}"
         loop = asyncio.get_event_loop()
         
-        # 1. Tải thông tin
-        # Dùng extract_flat=True ở trên giúp tải playlist siêu nhanh
+        # Tải thông tin
         data = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_OPTIONS).extract_info(search_query, download=False))
-        
         song_info = None
         
-        # 2. Xử lý kết quả (Playlist hay Bài lẻ?)
         if 'entries' in data:
-            entries = list(data['entries']) # Danh sách các bài hát
-            
+            entries = list(data['entries'])
             if is_autoplay:
-                # Chế độ Radio: Bốc ngẫu nhiên 1 bài trong playlist để hát
                 entry = random.choice(entries)
-                # Vì extract_flat chỉ lấy url sơ bộ, cần resolve lại url chuẩn
                 song_info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_SINGLE_OPTIONS).extract_info(entry['url'], download=False))
-                
             else:
-                # Chế độ !play:
                 if query.startswith('http'): 
-                    # Là Link Playlist -> Hát bài 1, thêm các bài sau vào queue
                     first_entry = entries[0]
                     song_info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_SINGLE_OPTIONS).extract_info(first_entry['url'], download=False))
-                    
-                    # Thêm các bài còn lại vào hàng chờ
                     added_count = 0
                     for entry in entries[1:]:
                         if entry.get('url'):
                             queues[ctx.guild.id].append(entry['url'])
                             added_count += 1
-                    
                     if added_count > 0:
                         await ctx.send(f"✅ Đã thêm **{added_count}** bài từ Playlist vào hàng chờ!", delete_after=5)
                 else:
-                    # Là tìm kiếm (scsearch) -> Chỉ lấy kết quả đầu tiên
                     first_entry = entries[0]
                     song_info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_SINGLE_OPTIONS).extract_info(first_entry['url'], download=False))
         else:
-            # Là bài lẻ trực tiếp
             song_info = data
 
-        # 3. Phát nhạc
         if not song_info: return
-        
         song_url = song_info['url']
         title = song_info.get('title', 'Nhạc Chill')
         
@@ -180,9 +208,8 @@ async def run_pomodoro(ctx, work, break_time):
         for _ in range(work * 60):
             if not pomo_sessions.get(guild_id, False): return
             await asyncio.sleep(1)
-            
-        if not pomo_sessions.get(guild_id, False): return
         
+        if not pomo_sessions.get(guild_id, False): return
         await ctx.send(f"☕ **GIẢI LAO! ({break_time}p)**\nĐứng dậy vươn vai nào!")
         for _ in range(break_time * 60):
             if not pomo_sessions.get(guild_id, False): return
@@ -202,7 +229,7 @@ async def stop_pomo(ctx):
     pomo_sessions[ctx.guild.id] = False
     await ctx.send("🛑 Đã dừng Pomodoro.", delete_after=5)
 
-# --- LỆNH & START ---
+# --- CÁC LỆNH KHÁC ---
 
 @bot.event
 async def on_ready():
@@ -239,6 +266,17 @@ async def stop(ctx):
         ctx.voice_client.stop()
         await ctx.voice_client.disconnect()
         await ctx.send("👋 Bye!", delete_after=5)
+
+@bot.command()
+async def queue(ctx):
+    if ctx.guild.id in queues and queues[ctx.guild.id]:
+        # Chỉ hiển thị 10 bài đầu tiên để đỡ spam
+        list_nhac = "\n".join([f"{i+1}. {bai}" for i, bai in enumerate(queues[ctx.guild.id][:10])])
+        if len(queues[ctx.guild.id]) > 10:
+            list_nhac += f"\n... và {len(queues[ctx.guild.id]) - 10} bài nữa."
+        await ctx.send(f"📜 **Danh sách chờ:**\n{list_nhac}")
+    else:
+        await ctx.send("📭 Hàng chờ trống (Đang chạy chế độ Auto Radio).", delete_after=5)
 
 @bot.command()
 async def volume(ctx, vol: int):
