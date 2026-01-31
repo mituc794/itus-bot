@@ -51,7 +51,6 @@ Ví dụ:
 
 LOFI_PLAYLIST = [
     "https://soundcloud.com/relaxing-music-production/sets/piano-for-studying",
-    "https://soundcloud.com/chilledcow/sets/lofi-hip-hop-radio-beats-to",
 ]
 
 # --- KHO QUOTE "MẶN MÒI" ---
