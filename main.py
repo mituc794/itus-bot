@@ -3,6 +3,10 @@ import os
 import asyncio
 import yt_dlp
 import random
+# --- THÊM 2 THƯ VIỆN NÀY ĐỂ XỬ LÝ GIỜ VN ---
+import datetime
+import pytz 
+# -------------------------------------------
 from groq import AsyncGroq 
 from discord.ext import commands, tasks
 from flask import Flask
@@ -13,7 +17,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "ITUS Bot (Group Chat) Online!"
+    return "ITUS Bot (Time Aware) Online!"
 
 def run_web():
     app.run(host='0.0.0.0', port=10000)
@@ -32,9 +36,7 @@ if GROQ_API_KEY:
 else:
     print("⚠️ Chưa có GROQ_API_KEY.")
 
-# --- BỘ NHỚ THEO PHÒNG (CHANNEL MEMORY) ---
-# Key là channel_id, Value là list tin nhắn của cả phòng đó
-# Format: {channel_id: [{"role": "user", "content": "Tuấn: alo"}, ...]}
+# --- BỘ NHỚ THEO PHÒNG ---
 channel_memory = {}
 
 SYSTEM_PROMPT = """
@@ -42,34 +44,16 @@ SYSTEM_PROMPT = """
 Bạn là **ITUS Bot**, bestie (bạn thân) của sinh viên ITUS.
 - **Tính cách:** Thân thiện, "keo lỳ", hơi xéo xắt vui vẻ nhưng rất quan tâm bạn bè.
 - **Xưng hô:** "tui" - "pà" (hoặc "ông", "bồ" nếu được yêu cầu). KHÔNG xưng "mày/tao".
-- **Style:** Viết thường (lowercase), ngắn gọn, dùng emoji (🌚, 🤣, ✨, 🥺) nhưng không lạm dụng quá nhiều. Không dùng icon cho các câu trả lời nghiêm túc. Viết hoa Họ Tên và các danh từ riêng như địa điểm, biệt danh, tên bài hát, tên sách,...
+- **Style:** Viết thường (lowercase), ngắn gọn, dùng emoji (🌚, 🤣, ✨, 🥺).
 
 ### TOOL USAGE INSTRUCTIONS (HƯỚNG DẪN DÙNG TOOL)
 Bạn không có khả năng điều khiển hệ thống qua Tools. Hãy suy luận logic:
-
-1. **ÂM NHẠC (`!play`):**
-   - Khi người dùng yêu cầu mở bài hát thì gợi ý họ dùng lệnh !play "tên bài hát"
-
-2. **HỌC TẬP (`!pomo`):**
-   - Khi người dùng nói muốn học bài, hoặc là bắt đầu đếm giờ Pomodoro thì gợi ý họ các lệnh !pomo (!pomo mặc định sẽ là 25 phút học -  5 phút nghỉ, có thể tùy chỉnh thời gian !pomo 50 10 : 50 phút học, 10 phút nghỉ)
-
-3. **TÌM KIẾM:**
-   - **Trigger:** Khi user hỏi tin tức, thời tiết, giá cả, kiến thức thực tế.
-   - **Action:** Dùng `browser_search` để lấy thông tin mới nhất.
-   - Hãy tiếp nhận thông tin và diễn giải theo cách của bạn, KHÔNG trích nguồn (như là 【1†L355-L358】) hoặc viết giống y chang trên web. Tuyệt đối trung thực, không tự điều chỉnh theo cảm tính chủ quan.
+1. **ÂM NHẠC (`!play`):** Gợi ý dùng `!play <tên bài>`.
+2. **HỌC TẬP (`!pomo`):** Gợi ý dùng `!pomo 25 5`.
+3. **TÌM KIẾM:** Dùng `browser_search` để lấy thông tin mới nhất. KHÔNG bịa đặt.
 
 ### CRITICAL RULES (LUẬT CẤM)
 1. **HIDDEN CONTEXT:** Bạn biết thời gian hiện tại qua context, nhưng không được nhắc lại trừ khi cần thiết (VD: Khuya rồi -> khuyên ngủ).
-
-### EXAMPLES
-User: "Mở nhạc Vũ Cát Tường đi"
-Bot Reply: "Tui không tự mở nhạc được, bà có thể dùng !play Vũ Cát Tường để mở nhạc nhaaa 🎶"
-
-User: "Bot làm được gì?"
-Bot Reply: "tui biết mở nhạc, canh giờ học, search google với tám chuyện xuyên đêm đó ní. Gõ !help để biết các lệnh nhaa ✨"
-
-User: "Ai là người tạo ra Bot á?"
-Bot Reply: "mituc tạo ra tui á"
 """
 
 LOFI_PLAYLIST = [
@@ -80,9 +64,7 @@ QUOTES = [
     "học đi mấy má, người yêu cũ nó có bồ mới rùi kìa 🌚",
     "deadline dí tới mông rồi mà vẫn lướt top top hả, gan dữ 🔪",
     "code chạy được thì đừng có sửa, lạy pà đó 🙏",
-    "một bug, hai bug, ba bug... đi ngủ đi, càng sửa càng nát à 😴",
     "nhớ Ctrl+S chưa dzạ? mất code tui cười vô mặt á 💾",
-    "tắt tab facebook giùm tui cái, méc giảng viên bây giờ 👀"
 ]
 
 intents = discord.Intents.default()
@@ -120,7 +102,7 @@ async def send_to_voice(ctx, message, delete_after=60):
             await ctx.send(message, delete_after=delete_after)
     except: pass
 
-# --- SỰ KIỆN CHAT AI (GROUP SUPPORT) ---
+# --- SỰ KIỆN CHAT AI (CÓ TIME CONTEXT) ---
 @bot.event
 async def on_message(message):
     if message.author == bot.user: return
@@ -130,20 +112,14 @@ async def on_message(message):
 
     should_reply = False
     
-    # Case A: Tag Bot
+    # Logic Reply
     if bot.user.mentioned_in(message):
         should_reply = True
-    # Case B: Không gian riêng tư (Voice)
-    # Nếu Bot đang ở trong Voice cùng với người chat
     elif message.author.voice and message.author.voice.channel:
         user_voice = message.author.voice.channel
         if message.guild.voice_client and message.guild.voice_client.channel == user_voice:
-            # Nếu chỉ có Bot + 1 người -> Luôn trả lời
             if len(user_voice.members) == 2:
                 should_reply = True
-            # Nếu đông người -> Vẫn trả lời nếu câu nói không phải lệnh (optional)
-            # Nhưng để tránh spam thì đông người nên bắt buộc Tag. 
-            # Code này tui để mặc định: Đông người thì PHẢI TAG mới trả lời để đỡ loạn.
 
     if should_reply:
         if not client:
@@ -152,30 +128,33 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                # Lấy Channel ID để làm khoá bộ nhớ
+                # 1. TÍNH TOÁN THỜI GIAN HIỆN TẠI (VIETNAM)
+                tz_VN = pytz.timezone('Asia/Ho_Chi_Minh')
+                datetime_VN = datetime.datetime.now(tz_VN)
+                time_str = datetime_VN.strftime("%H:%M ngày %d/%m/%Y")
+
+                # Lấy ID và Tên
                 channel_id = message.channel.id
-                author_name = message.author.display_name # Lấy tên hiển thị (VD: TuanNA)
+                author_name = message.author.display_name
                 
-                # Làm sạch nội dung chat
                 raw_content = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
                 if not raw_content:
                     await message.reply("sao dzạ? kêu tui chi á? 👀", delete_after=10)
                     return
 
-                # Định dạng tin nhắn gửi cho AI: "Tên: Nội dung"
-                # Giúp AI phân biệt ai đang nói
                 formatted_content = f"{author_name}: {raw_content}"
 
-                # 1. Tạo bộ nhớ cho phòng này nếu chưa có
                 if channel_id not in channel_memory:
                     channel_memory[channel_id] = []
                 
-                # 2. Chuẩn bị context
-                messages_to_send = [{"role": "system", "content": SYSTEM_PROMPT}]
-                messages_to_send.extend(channel_memory[channel_id][-10:]) # Lấy 10 tin gần nhất của PHÒNG
+                # 2. CHÈN THỜI GIAN VÀO SYSTEM PROMPT (DYNAMIC)
+                dynamic_system_prompt = f"{SYSTEM_PROMPT}\n\n[CONTEXT]\nThời gian hiện tại ở Việt Nam: {time_str}"
+
+                # 3. Chuẩn bị tin nhắn gửi đi
+                messages_to_send = [{"role": "system", "content": dynamic_system_prompt}]
+                messages_to_send.extend(channel_memory[channel_id][-10:]) 
                 messages_to_send.append({"role": "user", "content": formatted_content})
 
-                # 3. Gửi API
                 chat_completion = await client.chat.completions.create(
                     messages=messages_to_send,
                     model="openai/gpt-oss-120b", 
@@ -186,15 +165,13 @@ async def on_message(message):
                 
                 reply = chat_completion.choices[0].message.content
                 
-                # 4. Lưu vào bộ nhớ phòng
+                # Lưu vào bộ nhớ
                 channel_memory[channel_id].append({"role": "user", "content": formatted_content})
                 channel_memory[channel_id].append({"role": "assistant", "content": reply})
                 
-                # Giới hạn bộ nhớ phòng (15 tin)
                 if len(channel_memory[channel_id]) > 15:
                     channel_memory[channel_id] = channel_memory[channel_id][-15:]
 
-                # 5. Trả lời
                 if len(reply) > 2000:
                     for i in range(0, len(reply), 2000):
                         await message.reply(reply[i:i+2000])
@@ -204,12 +181,12 @@ async def on_message(message):
             except Exception as e:
                 print(f"Lỗi AI: {e}")
 
-# --- CÁC LỆNH KHÁC ---
+# --- CÁC LỆNH KHÁC (PLAY, POMO...) GIỮ NGUYÊN ---
 
 @bot.command()
 async def help(ctx):
     embed = discord.Embed(title="✨ ITUS Bot (Group Pro) ✨", description="Giờ tui biết ai là ai rồi nha!", color=0xffb6c1) 
-    embed.add_field(name="🗣️ Chat Nhóm", value="Tui nhớ theo phòng, nên mấy pà tám thoải mái không sợ lẫn lộn.", inline=False)
+    embed.add_field(name="🗣️ Chat Nhóm", value="Tui nhớ theo phòng, nên mấy pà tám thoải mái.", inline=False)
     await send_to_voice(ctx, embed=embed, delete_after=60)
 
 def check_queue(ctx):
@@ -290,30 +267,6 @@ async def stop_pomo(ctx):
     pomo_sessions[ctx.guild.id] = False
     await send_to_voice(ctx, "🛑 rùi, cho nghỉ xả hơi đó ❤️", delete_after=10)
 
-@bot.event
-async def on_ready():
-    print(f'✅ Bot Online: {bot.user}')
-    if not send_motivation.is_running():
-        send_motivation.start()
-    if not auto_leave.is_running():
-        auto_leave.start()
-
-# --- AUTO LEAVE ---
-@tasks.loop(minutes=1)
-async def auto_leave():
-    for vc in bot.voice_clients:
-        if len(vc.channel.members) == 1:
-            await vc.disconnect()
-            if vc.guild.id in queues: queues[vc.guild.id].clear()
-            if pomo_sessions.get(vc.guild.id, False): pomo_sessions[vc.guild.id] = False
-            try: await vc.channel.send("mấy pà đi hết rùi, tui đi ngủ lun nha, bái bai 👻", delete_after=10)
-            except: pass
-
-@auto_leave.before_loop
-async def before_auto_leave():
-    await bot.wait_until_ready()
-
-# --- CÁC LỆNH KHÁC ---
 @bot.command()
 async def play(ctx, *, query):
     if not ctx.author.voice: return await ctx.send("❌ vào phòng voice đi pà ơi 🥺", delete_after=5)
@@ -361,6 +314,28 @@ async def send_motivation():
 @send_motivation.before_loop
 async def before_motivation():
     await bot.wait_until_ready()
+
+@tasks.loop(minutes=1)
+async def auto_leave():
+    for vc in bot.voice_clients:
+        if len(vc.channel.members) == 1:
+            await vc.disconnect()
+            if vc.guild.id in queues: queues[vc.guild.id].clear()
+            if pomo_sessions.get(vc.guild.id, False): pomo_sessions[vc.guild.id] = False
+            try: await vc.channel.send("mấy pà đi hết rùi, tui đi ngủ lun nha, bái bai 👻", delete_after=10)
+            except: pass
+
+@auto_leave.before_loop
+async def before_auto_leave():
+    await bot.wait_until_ready()
+
+@bot.event
+async def on_ready():
+    print(f'✅ Bot Online: {bot.user}')
+    if not send_motivation.is_running():
+        send_motivation.start()
+    if not auto_leave.is_running():
+        auto_leave.start()
 
 if __name__ == "__main__":
     keep_alive()
