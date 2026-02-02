@@ -1,343 +1,387 @@
-import discord
 import os
-import asyncio
-import yt_dlp
-import random
-# --- THÊM 2 THƯ VIỆN NÀY ĐỂ XỬ LÝ GIỜ VN ---
-import datetime
-import pytz 
-# -------------------------------------------
-from groq import AsyncGroq 
+import discord
 from discord.ext import commands, tasks
+import yt_dlp
+import asyncio
 from flask import Flask
 from threading import Thread
+from groq import AsyncGroq
+from collections import deque
+from datetime import datetime
+import random
+from dotenv import load_dotenv
 
-# --- WEB SERVER ---
+# Load biến môi trường (nếu chạy local)
+load_dotenv()
+
+# --- CẤU HÌNH (CONFIGURATION) ---
+TOKEN = os.getenv("DISCORD_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Cấu hình YTDL (Ưu tiên Soundcloud)
+YTDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'default_search': 'scsearch', # Mặc định tìm trên Soundcloud
+    'quiet': True,
+}
+# Cấu hình FFMPEG
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn',
+}
+
+# --- FLASK SERVER (KEEP ALIVE CHO RENDER) ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "ITUS Bot (Time Aware) Online!"
+    return "ITUS Bot is alive and kicking!"
 
-def run_web():
-    app.run(host='0.0.0.0', port=10000)
+def run_api():
+    app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
-    t = Thread(target=run_web)
+    t = Thread(target=run_api)
     t.start()
 
-# --- CẤU HÌNH ---
-TOKEN = os.getenv('DISCORD_TOKEN')
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+# --- AI CONFIGURATION ---
+groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
-client = None
-if GROQ_API_KEY:
-    client = AsyncGroq(api_key=GROQ_API_KEY)
-else:
-    print("⚠️ Chưa có GROQ_API_KEY.")
-
-# --- BỘ NHỚ THEO PHÒNG ---
-channel_memory = {}
-
+# Prompt định hình tính cách
 SYSTEM_PROMPT = """
-### IDENTITY (NHÂN DIỆN)
-Bạn là **ITUS Bot**, bestie (bạn thân) của sinh viên ITUS.
-- **Tính cách:** Thân thiện, "keo lỳ", hơi xéo xắt vui vẻ nhưng rất quan tâm bạn bè.
-- **Xưng hô:** "tui" - "pà" (hoặc "ông", "bồ" nếu được yêu cầu). KHÔNG xưng "mày/tao".
-- **Style:** Viết thường (lowercase), ngắn gọn, dùng emoji (🌚, 🤣, ✨, 🥺).
+Bạn là ITUS Bot, một trợ lý ảo dành riêng cho sinh viên trường ĐH Khoa học Tự nhiên (HCMUS/ITUS).
+TÍNH CÁCH:
+- Thân thiện, hài hước, rất "teen", đôi khi hơi xéo xắt nhưng dễ thương.
+- Luôn xưng hô "tui" và gọi người dùng là "ông/pà". TUYỆT ĐỐI KHÔNG xưng "mày/tao".
+- Trả lời ngắn gọn, đi thẳng vào vấn đề, không giáo điều dài dòng.
+- Biết an ủi, động viên khi người dùng than mệt mỏi, áp lực (deadline, bug).
 
-### TOOL USAGE INSTRUCTIONS (HƯỚNG DẪN DÙNG TOOL)
-Bạn không có khả năng điều khiển hệ thống qua Tools. Hãy suy luận logic:
-1. **ÂM NHẠC (`!play`):** Gợi ý dùng `!play <tên bài>`.
-2. **HỌC TẬP (`!pomo`):** Gợi ý dùng `!pomo 25 5`.
-3. **TÌM KIẾM:** Dùng `browser_search` để lấy thông tin mới nhất. KHÔNG bịa đặt.
+NHIỆM VỤ:
+1. Hỗ trợ học tập: Code Python, Java, giải thích kiến trúc phần mềm, testing, v.v.
+2. Hỗ trợ chức năng bot (khi người dùng hỏi làm sao để dùng):
+   - Nhạc: `!play {tên/link}` (Soundcloud).
+   - Pomodoro: `!pomo {phút học} {phút nghỉ}` (Mặc định 50/10).
+   - Dừng: `!stop_pomo`, `!skip`.
+3. Thời gian: Luôn trả lời dựa trên context thời gian thực được cung cấp.
 
-### CRITICAL RULES (LUẬT CẤM)
-1. **HIDDEN CONTEXT:** Bạn biết thời gian hiện tại qua context, nhưng không được nhắc lại trừ khi cần thiết (VD: Khuya rồi -> khuyên ngủ).
+LƯU Ý QUAN TRỌNG:
+- Bạn có công cụ tìm kiếm (browser_search). Nếu người dùng hỏi thông tin cần cập nhật (thời tiết, giá cả, tin tức, code mới nhất), hãy dùng nó.
 """
 
-LOFI_PLAYLIST = [
-    "https://soundcloud.com/relaxing-music-production/sets/piano-for-studying",
-]
+# Lưu context chat theo Channel ID: {channel_id: deque(maxlen=15)}
+chat_contexts = {}
 
-QUOTES = [
-    "học đi mấy má, người yêu cũ nó có bồ mới rùi kìa 🌚",
-    "deadline dí tới mông rồi mà vẫn lướt top top hả, gan dữ 🔪",
-    "code chạy được thì đừng có sửa, lạy pà đó 🙏",
-    "nhớ Ctrl+S chưa dzạ? mất code tui cười vô mặt á 💾",
-]
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.voice_states = True 
-
+# --- BOT SETUP ---
+intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
-queues = {}
-pomo_sessions = {}
-DEFAULT_VOLUME = 0.5
+# --- MUSIC ENGINE ---
+class MusicEngine:
+    def __init__(self):
+        self.queue = [] # Queue bài hát user yêu cầu
+        self.is_radio_mode = False # Cờ kiểm tra chế độ Radio
+        self.radio_url = "https://soundcloud.com/monstercat/sets/monstercat-lofi" # Link Lofi mặc định
 
-YTDL_OPTIONS = {
-    'format': 'bestaudio[protocol*="m3u8"]/bestaudio[protocol*="http"]/bestaudio',
-    'noplaylist': 'True', 'extract_flat': 'in_playlist',
-    'quiet': True, 'default_search': 'scsearch', 'source_address': '0.0.0.0',
-    'http_headers': {'User-Agent': 'Mozilla/5.0...'},
-    'ignoreerrors': True, 'no_warnings': True
-}
-YTDL_SINGLE_OPTIONS = YTDL_OPTIONS.copy()
-YTDL_SINGLE_OPTIONS['noplaylist'] = True
-YTDL_SINGLE_OPTIONS['extract_flat'] = False
-
-FFMPEG_OPTIONS = {
-    'before_options': ('-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -protocol_whitelist file,http,https,tcp,tls,crypto -allowed_extensions ALL'),
-    'options': '-vn'
-}
-
-# --- HÀM GỬI TIN NHẮN (TỰ HỦY) ---
-async def send_to_voice(ctx, message, delete_after=60):
-    try:
-        if ctx.voice_client and ctx.voice_client.channel:
-            await ctx.voice_client.channel.send(message, delete_after=delete_after)
-        else:
-            await ctx.send(message, delete_after=delete_after)
-    except: pass
-
-# --- SỰ KIỆN CHAT AI (CÓ TIME CONTEXT) ---
-@bot.event
-async def on_message(message):
-    if message.author == bot.user: return
-    if message.content.startswith('!'):
-        await bot.process_commands(message)
-        return
-
-    should_reply = False
-    
-    # Logic Reply
-    if bot.user.mentioned_in(message):
-        should_reply = True
-    elif message.author.voice and message.author.voice.channel:
-        user_voice = message.author.voice.channel
-        if message.guild.voice_client and message.guild.voice_client.channel == user_voice:
-            if len(user_voice.members) == 2:
-                should_reply = True
-
-    if should_reply:
-        if not client:
-            await message.reply("🥺 tui chưa có não (Groq API) rùi...", delete_after=10)
-            return
-
-        async with message.channel.typing():
-            try:
-                # 1. TÍNH TOÁN THỜI GIAN HIỆN TẠI (VIETNAM)
-                tz_VN = pytz.timezone('Asia/Ho_Chi_Minh')
-                datetime_VN = datetime.datetime.now(tz_VN)
-                time_str = datetime_VN.strftime("%H:%M ngày %d/%m/%Y")
-
-                # Lấy ID và Tên
-                channel_id = message.channel.id
-                author_name = message.author.display_name
-                
-                raw_content = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
-                if not raw_content:
-                    await message.reply("sao dzạ? kêu tui chi á? 👀", delete_after=10)
-                    return
-
-                formatted_content = f"{author_name}: {raw_content}"
-
-                if channel_id not in channel_memory:
-                    channel_memory[channel_id] = []
-                
-                # 2. CHÈN THỜI GIAN VÀO SYSTEM PROMPT (DYNAMIC)
-                dynamic_system_prompt = f"{SYSTEM_PROMPT}\n\n[CONTEXT]\nThời gian hiện tại ở Việt Nam: {time_str}"
-
-                # 3. Chuẩn bị tin nhắn gửi đi
-                messages_to_send = [{"role": "system", "content": dynamic_system_prompt}]
-                messages_to_send.extend(channel_memory[channel_id][-10:]) 
-                messages_to_send.append({"role": "user", "content": formatted_content})
-
-                chat_completion = await client.chat.completions.create(
-                    messages=messages_to_send,
-                    model="openai/gpt-oss-120b", 
-                    max_tokens=1024,
-                    temperature=0.6,
-                    tools=[{"type":"browser_search"}],
-                )
-                
-                reply = chat_completion.choices[0].message.content
-                
-                # Lưu vào bộ nhớ
-                channel_memory[channel_id].append({"role": "user", "content": formatted_content})
-                channel_memory[channel_id].append({"role": "assistant", "content": reply})
-                
-                if len(channel_memory[channel_id]) > 15:
-                    channel_memory[channel_id] = channel_memory[channel_id][-15:]
-
-                if len(reply) > 2000:
-                    for i in range(0, len(reply), 2000):
-                        await message.reply(reply[i:i+2000])
-                else:
-                    await message.reply(reply)
-
-            except Exception as e:
-                print(f"Lỗi AI: {e}")
-
-# --- CÁC LỆNH KHÁC (PLAY, POMO...) GIỮ NGUYÊN ---
-
-@bot.command()
-async def help(ctx):
-    embed = discord.Embed(title="✨ ITUS Bot (Group Pro) ✨", description="Giờ tui biết ai là ai rồi nha!", color=0xffb6c1) 
-    embed.add_field(name="🗣️ Chat Nhóm", value="Tui nhớ theo phòng, nên mấy pà tám thoải mái.", inline=False)
-    await send_to_voice(ctx, embed=embed, delete_after=60)
-
-def check_queue(ctx):
-    guild_id = ctx.guild.id
-    if guild_id in queues and queues[guild_id]:
-        query = queues[guild_id].pop(0)
-        coro = play_source(ctx, query)
-        asyncio.run_coroutine_threadsafe(coro, bot.loop)
-    else:
-        random_playlist = random.choice(LOFI_PLAYLIST)
-        coro = play_source(ctx, random_playlist, is_autoplay=True)
-        asyncio.run_coroutine_threadsafe(coro, bot.loop)
-
-async def play_source(ctx, query, is_autoplay=False):
-    try:
-        search_query = query if query.startswith('http') else f"scsearch:{query}"
-        loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_OPTIONS).extract_info(search_query, download=False))
-        
-        song_info = None
-        if 'entries' in data:
-            entries = list(data['entries'])
-            entry = random.choice(entries) if is_autoplay else entries[0]
-            song_info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(YTDL_SINGLE_OPTIONS).extract_info(entry['url'], download=False))
-        else:
-            song_info = data
-
-        if not song_info: return
-        song_url = song_info['url']
-        title = song_info.get('title', 'Nhạc Chill')
+    async def play_next(self, ctx):
         vc = ctx.voice_client
         if not vc: return
 
-        source = discord.FFmpegPCMAudio(song_url, **FFMPEG_OPTIONS)
-        transformed_source = discord.PCMVolumeTransformer(source, volume=DEFAULT_VOLUME)
-        vc.play(transformed_source, after=lambda e: check_queue(ctx))
-        
-        if not is_autoplay:
-            await send_to_voice(ctx, f"🎶 đang phát **{title}** cho pà nghe nè ✨", delete_after=120)
-            
-    except Exception as e:
-        print(f"Lỗi Play: {e}")
-        check_queue(ctx)
+        if len(self.queue) > 0:
+            # Ưu tiên bài trong queue (do user add)
+            url, title = self.queue.pop(0)
+            await self.play_source(ctx, url, title)
+        elif self.is_radio_mode:
+            # Nếu hết queue mà đang bật Pomo -> Auto Radio
+            await self.play_source(ctx, self.radio_url, "📻 ITUS Radio (Lofi Chill)")
+        else:
+            # Hết nhạc, không radio -> Im lặng (hoặc disconnect tuỳ logic)
+            pass
 
-async def run_pomodoro(ctx, work, break_time):
-    guild_id = ctx.guild.id
-    while pomo_sessions.get(guild_id, False):
-        await send_to_voice(ctx, f"🍅 **TẬP TRUNG NHA ({work}p)**\ncất cái điện thoại giùm, tui canh rùi 😎", delete_after=60)
-        for _ in range(work * 60):
-            if not pomo_sessions.get(guild_id, False): return
-            await asyncio.sleep(1)
-        if not pomo_sessions.get(guild_id, False): return
-        
-        await send_to_voice(ctx, f"☕ **NGHỈ XÍU ĐI ({break_time}p)**\nđứng dậy vươn vai điii 🙆‍♂️", delete_after=60)
-        for _ in range(break_time * 60):
-            if not pomo_sessions.get(guild_id, False): return
-            await asyncio.sleep(1)
+    async def play_source(self, ctx, search_query, title_display="Music"):
+        vc = ctx.voice_client
+        if not vc: return
 
-@bot.command()
-async def pomo(ctx, work: int = 25, break_time: int = 5):
-    guild_id = ctx.guild.id
-    if pomo_sessions.get(guild_id, False):
-        return await send_to_voice(ctx, "⚠️ tui đang canh giờ rùi mà, muốn dừng thì bảo `!stop_pomo` ha", delete_after=5)
+        # Tìm và lấy link stream
+        # Chạy trong executor để không chặn event loop
+        loop = asyncio.get_event_loop()
+        try:
+            with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+                
+                if 'entries' in info:
+                    url = info['entries'][0]['url']
+                    title = info['entries'][0]['title']
+                else:
+                    url = info['url']
+                    title = info['title']
+                
+                # Nếu là radio playlist, lấy tên hiển thị custom
+                if self.is_radio_mode and search_query == self.radio_url:
+                     title = title_display
+
+                source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
+                
+                # Hàm callback khi hát xong
+                def after_play(e):
+                    if e: print(f"Lỗi player: {e}")
+                    # Gọi đệ quy bài tiếp theo
+                    asyncio.run_coroutine_threadsafe(self.play_next(ctx), bot.loop)
+
+                if vc.is_playing():
+                    vc.stop()
+                
+                vc.play(source, after=after_play)
+                await ctx.send(f"🎶 Đang phát: **{title}**", delete_after=60)
+                
+        except Exception as e:
+            print(f"Lỗi nhạc: {e}")
+            await ctx.send("Hic, bài này lỗi rồi, tui bỏ qua nha.", delete_after=10)
+            await self.play_next(ctx)
+
+music_engine = MusicEngine()
+
+# --- POMODORO ENGINE ---
+class PomodoroSession:
+    def __init__(self, ctx, work_min=50, break_min=10):
+        self.ctx = ctx
+        self.work_time = work_min * 60
+        self.break_time = break_min * 60
+        self.current_time = self.work_time
+        self.is_running = False
+        self.mode = "work" # "work" hoặc "break"
+        self.start_work_dur = work_min
+        self.start_break_dur = break_min
+
+pomo_sessions = {} # {guild_id: session}
+
+@tasks.loop(seconds=1)
+async def pomo_loop():
+    for guild_id, session in list(pomo_sessions.items()):
+        if not session.is_running: continue
+
+        session.current_time -= 1
+        
+        # Hết giờ
+        if session.current_time <= 0:
+            if session.mode == "work":
+                # Chuyển sang nghỉ
+                session.mode = "break"
+                session.current_time = session.start_break_dur * 60
+                await session.ctx.send(f"🔔 **Hết giờ học rồi!** Nghỉ {session.start_break_dur} phút xả hơi đi mấy ông.", delete_after=300)
+            else:
+                # Chuyển sang học
+                session.mode = "work"
+                session.current_time = session.start_work_dur * 60
+                await session.ctx.send(f"🔔 **Vào học lại nào!** Tập trung cao độ nhé!", delete_after=300)
+
+        # Logic quan tâm (Feature 12) - Chỉ chạy trong giờ nghỉ
+        if session.mode == "break" and session.current_time > 0 and session.current_time % 300 == 0: # Check mỗi 5 phút
+            # 30% tỷ lệ hỏi thăm
+            if random.random() < 0.3:
+                msgs = [
+                    "Ông ổn không đó? Uống miếng nước đi.",
+                    "Đứng dậy vươn vai cái nào, ngồi lâu đau lưng á.",
+                    "Mệt quá thì chợp mắt xíu đi nha.",
+                    "Cố lên, tui tin ông làm được mà!"
+                ]
+                await session.ctx.send(f"@{session.ctx.author.display_name} {random.choice(msgs)}", delete_after=60)
+
+# --- COMMANDS ---
+
+# Helper: Kiểm tra voice và auto-join
+async def ensure_voice(ctx):
+    if not ctx.author.voice:
+        await ctx.send("Ông vô phòng Voice trước đi rồi tui mới phục vụ được!", delete_after=10)
+        return False
     
-    if ctx.author.voice:
-        if not ctx.voice_client: await ctx.author.voice.channel.connect()
-        if not ctx.voice_client.is_playing():
-             random_playlist = random.choice(LOFI_PLAYLIST)
-             await play_source(ctx, random_playlist, is_autoplay=True)
-             await send_to_voice(ctx, "🎶 tui bật nhạc lofi cho tập trung nha ✨", delete_after=10)
+    if not ctx.voice_client:
+        await ctx.author.voice.channel.connect()
+    elif ctx.voice_client.channel != ctx.author.voice.channel:
+        await ctx.voice_client.move_to(ctx.author.voice.channel)
+        
+    return True
 
-    pomo_sessions[guild_id] = True
-    await send_to_voice(ctx, f"✅ **Pomodoro Start:** {work}p Học / {break_time}p Nghỉ.\nráng học đi nha 🥰", delete_after=60)
-    bot.loop.create_task(run_pomodoro(ctx, work, break_time))
-
-@bot.command()
-async def stop_pomo(ctx):
-    pomo_sessions[ctx.guild.id] = False
-    await send_to_voice(ctx, "🛑 rùi, cho nghỉ xả hơi đó ❤️", delete_after=10)
+@bot.event
+async def on_ready():
+    print(f'{bot.user} đã online và sẵn sàng phục vụ ITUS-er!')
+    pomo_loop.start()
+    keep_alive()
 
 @bot.command()
 async def play(ctx, *, query):
-    if not ctx.author.voice: return await ctx.send("❌ vào phòng voice đi pà ơi 🥺", delete_after=5)
-    if not ctx.voice_client: await ctx.author.voice.channel.connect()
-    if ctx.guild.id not in queues: queues[ctx.guild.id] = []
+    if not await ensure_voice(ctx): return
     
-    vc = ctx.voice_client
-    if vc.is_playing():
-        queues[ctx.guild.id].append(query)
-        await send_to_voice(ctx, f"✅ tui thêm **{query}** vào hàng đợi rùi nha ✨", delete_after=10)
-    else:
-        await play_source(ctx, query)
+    # Feature 3: Nếu đang bật Radio mà user gõ !play -> Ngắt Radio ngay
+    if music_engine.is_radio_mode and ctx.voice_client.is_playing() and not music_engine.queue:
+        ctx.voice_client.stop() # Stop để trigger 'after_play' -> check queue
+    
+    music_engine.queue.append((query, query)) # Lưu query vào queue
+    await ctx.send(f"✅ Đã thêm **{query}** vào hàng đợi.", delete_after=10)
+    
+    if not ctx.voice_client.is_playing():
+        await music_engine.play_next(ctx)
 
 @bot.command()
 async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
-        await send_to_voice(ctx, "⏭️ okie, qua bài khác liền 😋", delete_after=5)
+        await ctx.send("⏭️ Đã skip!", delete_after=5)
 
 @bot.command()
-async def stop(ctx):
-    if ctx.guild.id in queues: queues[ctx.guild.id].clear()
-    if ctx.voice_client:
-        ctx.voice_client.stop()
-        await ctx.voice_client.disconnect()
-        await send_to_voice(ctx, "👋 tui đi ngủ đây, bái bai 💖", delete_after=10)
+async def pomo(ctx, work: int = 50, break_time: int = 10):
+    if not await ensure_voice(ctx): return
+    
+    # Khởi tạo session
+    session = PomodoroSession(ctx, work, break_time)
+    session.is_running = True
+    pomo_sessions[ctx.guild.id] = session
+    
+    # Bật chế độ Radio
+    music_engine.is_radio_mode = True
+    
+    # Nếu chưa hát gì thì hát luôn
+    if not ctx.voice_client.is_playing():
+        await music_engine.play_next(ctx)
+        
+    await ctx.send(f"🍅 **Pomodoro Started!**\n📚 Học: {work} phút\n☕ Nghỉ: {break_time} phút\n📻 Nhạc nền: Đã bật.", delete_after=60)
 
 @bot.command()
-async def volume(ctx, vol: int):
-    global DEFAULT_VOLUME
-    if 0 <= vol <= 100:
-        DEFAULT_VOLUME = vol / 100
-        if ctx.voice_client and ctx.voice_client.source:
-            ctx.voice_client.source.volume = DEFAULT_VOLUME
-        await send_to_voice(ctx, f"🔊 tui chỉnh loa mức **{vol}%** rùi nha 👌", delete_after=5)
+async def stop_pomo(ctx):
+    if ctx.guild.id in pomo_sessions:
+        del pomo_sessions[ctx.guild.id]
+        music_engine.is_radio_mode = False # Tắt radio mode
+        if ctx.voice_client: 
+            ctx.voice_client.stop() # Dừng nhạc
+        await ctx.send("Đã dừng Pomodoro và tắt nhạc.", delete_after=10)
 
-@tasks.loop(minutes=45) 
-async def send_motivation():
-    for vc in bot.voice_clients:
-        if len(vc.channel.members) > 1:
-            try:
-                await vc.channel.send(f"🔔 **nhắc nhẹ:** {random.choice(QUOTES)}", delete_after=300)
-            except: pass
+@bot.command()
+async def help(ctx):
+    manual = """
+    **📖 HƯỚNG DẪN SỬ DỤNG ITUS BOT:**
+    
+    🎶 **Âm nhạc:**
+    `!play {tên/link}` : Phát nhạc (Soundcloud/Youtube).
+    `!skip` : Qua bài.
+    
+    🍅 **Học tập (Pomodoro):**
+    `!pomo` : Chạy mặc định 50p học / 10p nghỉ + Nhạc nền Lofi.
+    `!pomo {học} {nghỉ}` : Chạy theo thời gian tuỳ chỉnh.
+    `!stop_pomo` : Dừng học, tắt nhạc.
+    
+    🤖 **Trò chuyện AI:**
+    - Tag @ITUS Bot hoặc chat trực tiếp nếu trong phòng chỉ có 2 đứa.
+    - Bot biết search Google nha, cứ hỏi thoải mái.
+    """
+    await ctx.send(manual, delete_after=120)
 
-@send_motivation.before_loop
-async def before_motivation():
-    await bot.wait_until_ready()
+# --- AI & CHAT LOGIC (ASYNC GROQ) ---
 
-@tasks.loop(minutes=1)
-async def auto_leave():
-    for vc in bot.voice_clients:
-        if len(vc.channel.members) == 1:
-            await vc.disconnect()
-            if vc.guild.id in queues: queues[vc.guild.id].clear()
-            if pomo_sessions.get(vc.guild.id, False): pomo_sessions[vc.guild.id] = False
-            try: await vc.channel.send("mấy pà đi hết rùi, tui đi ngủ lun nha, bái bai 👻", delete_after=10)
-            except: pass
+async def get_ai_response(message, history, current_time):
+    # Chuẩn bị tin nhắn gửi cho Model
+    messages = [
+        {"role": "system", "content": f"{SYSTEM_PROMPT}\n[THÔNG TIN CONTEXT]\nThời gian hiện tại: {current_time}"}
+    ]
+    
+    # Đưa lịch sử chat vào
+    for msg in history:
+        role = "user" if msg['role'] == 'user' else "assistant"
+        content_fmt = f"[{msg['time']}] {msg['user']}: {msg['content']}"
+        messages.append({"role": role, "content": content_fmt})
+    
+    # Tin nhắn mới nhất
+    messages.append({"role": "user", "content": message.content})
 
-@auto_leave.before_loop
-async def before_auto_leave():
-    await bot.wait_until_ready()
+    try:
+        # Gọi API bất đồng bộ với native tool 'browser_search'
+        completion = await groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=messages,
+            temperature=0.8, # Giảm nhiệt độ xíu cho bớt "bay"
+            max_completion_tokens=4096,
+            top_p=1,
+            stream=True, # Streaming response
+            tools=[{"type": "browser_search"}] # Native Search Tool
+        )
+        
+        # Gom stream text
+        full_response = ""
+        async for chunk in completion:
+            content = chunk.choices[0].delta.content
+            if content:
+                full_response += content
+                
+        return full_response if full_response else "Tui chưa nghĩ ra câu trả lời, ông hỏi lại thử xem?"
+
+    except Exception as e:
+        print(f"Groq API Error: {e}")
+        return "Ây da, mạng méo chán quá, não tui bị lag rồi. Ông chờ xíu hỏi lại nha."
 
 @bot.event
-async def on_ready():
-    print(f'✅ Bot Online: {bot.user}')
-    if not send_motivation.is_running():
-        send_motivation.start()
-    if not auto_leave.is_running():
-        auto_leave.start()
+async def on_message(message):
+    if message.author == bot.user: return
 
+    # Feature 4: Chỉ hoạt động trong Voice Channel context (Logic: User phải đang ở trong Voice)
+    # Tuy nhiên, user thường chat ở kênh Text. Ta sẽ kiểm tra xem user có trong Voice không.
+    is_user_in_voice = message.author.voice is not None
+    
+    # Quản lý Context chat (lưu tin nhắn text bất kể lệnh hay chat thường để AI hiểu ngữ cảnh)
+    channel_id = message.channel.id
+    if channel_id not in chat_contexts:
+        chat_contexts[channel_id] = deque(maxlen=15)
+    
+    # Lưu tin nhắn vào context
+    if not message.content.startswith('!'):
+        chat_contexts[channel_id].append({
+            "role": "user",
+            "user": message.author.display_name,
+            "content": message.content,
+            "time": datetime.now().strftime("%H:%M")
+        })
+
+    # LOGIC TRẢ LỜI (Feature 6, 7)
+    should_reply = False
+    
+    if is_user_in_voice:
+        voice_channel = message.author.voice.channel
+        
+        # Kiểm tra tag bot
+        if bot.user.mentioned_in(message):
+            should_reply = True
+            # Feature 7: Auto join
+            if not message.guild.voice_client:
+                 await voice_channel.connect()
+            elif message.guild.voice_client.channel != voice_channel:
+                 await message.guild.voice_client.move_to(voice_channel)
+        
+        # Kiểm tra 1-on-1 (Feature 6)
+        # Nếu trong phòng chỉ có Bot và User này -> Bot tự hiểu là đang nói chuyện với nó
+        elif message.guild.voice_client and message.guild.voice_client.channel == voice_channel:
+            if len(voice_channel.members) == 2:
+                should_reply = True
+
+    if should_reply:
+        async with message.channel.typing():
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            reply_content = await get_ai_response(message, chat_contexts[channel_id], current_time)
+            
+            # Bot lưu câu trả lời của chính nó vào context
+            chat_contexts[channel_id].append({
+                "role": "assistant",
+                "user": "ITUS Bot",
+                "content": reply_content,
+                "time": datetime.now().strftime("%H:%M")
+            })
+            
+            # Feature 4: Tự xoá tin nhắn sau một khoảng thời gian
+            await message.channel.send(reply_content, delete_after=300)
+
+    # Xử lý lệnh (!play, !pomo...)
+    await bot.process_commands(message)
+
+# Run Bot
 if __name__ == "__main__":
-    keep_alive()
-    if TOKEN:
+    if not TOKEN:
+        print("Lỗi: Chưa set DISCORD_TOKEN trong biến môi trường.")
+    else:
         bot.run(TOKEN)
