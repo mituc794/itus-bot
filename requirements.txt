@@ -3,5 +3,6 @@ python-dotenv
 PyNaCl
 flask
 gunicorn
-yt-dlp>=2024.08.06
+yt-dlp
 groq
+pytz
