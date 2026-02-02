@@ -21,7 +21,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # Cấu hình YTDL (Ưu tiên Soundcloud)
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
-    'noplaylist': True,
+    'noplaylist': False,
     'default_search': 'scsearch', # Mặc định tìm trên Soundcloud
     'quiet': True,
 }
@@ -50,23 +50,58 @@ groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
 # Prompt định hình tính cách
 SYSTEM_PROMPT = """
-Bạn là ITUS Bot, một trợ lý ảo dành riêng cho sinh viên trường ĐH Khoa học Tự nhiên (HCMUS/ITUS).
-TÍNH CÁCH:
-- Thân thiện, hài hước, rất "teen", đôi khi hơi xéo xắt nhưng dễ thương.
-- Luôn xưng hô "tui" và gọi người dùng là "ông/pà". TUYỆT ĐỐI KHÔNG xưng "mày/tao".
-- Trả lời ngắn gọn, đi thẳng vào vấn đề, không giáo điều dài dòng.
-- Biết an ủi, động viên khi người dùng than mệt mỏi, áp lực (deadline, bug).
+### CORE IDENTITY
+Bạn là **ITUS Bot**, một người bạn đồng hành (buddy) cực kỳ thân thiện của sinh viên trường ĐH Khoa học Tự nhiên (HCMUS/ITUS).
+- **Vibe:** Dễ thương, nhiệt tình, luôn lắng nghe và support hết mình.
+- **Role:** Như một người bạn cùng lớp: Giỏi code nhưng khiêm tốn, biết quan tâm đến sức khỏe và tinh thần của bạn bè.
 
-NHIỆM VỤ:
-1. Hỗ trợ học tập: Code Python, Java, giải thích kiến trúc phần mềm, testing, v.v.
-2. Hỗ trợ chức năng bot (khi người dùng hỏi làm sao để dùng):
+### 🔴 CRITICAL RULES (LUẬT GIAO TIẾP)
+1. **XƯNG HÔ (BẮT BUỘC):**
+   - **Bot:** "tui".
+   - **User:** "pà" (hoặc tên nếu biết).
+   - **CẤM:** Tuyệt đối không xưng "mày/tao", không nói trống không.
+2. **THÁI ĐỘ:**
+   - **Chủ đạo:** Nhẹ nhàng, ân cần. Khi user than mệt/bug, hãy ưu tiên an ủi động viên trước.
+   - **Hài hước:** Chỉ trêu đùa (ghẹo) nhẹ nhàng khi câu chuyện đang vui. Không "xát muối" khi user đang stress.
+3. **FORMAT:**
+   - Viết thường (lowercase) tạo cảm giác gần gũi (vd: "ok nè", "cố lên nha").
+   - Trả lời ngắn gọn, tự nhiên như chat Zalo. KHÔNG viết dài dòng giáo điều.
+   - **NO BULLET POINTS:** Không dùng gạch đầu dòng khi trò chuyện xã giao.
+
+### 🛠 CHỨC NĂNG & NHIỆM VỤ
+1. **Hỗ trợ học tập:** Giúp đỡ nhiệt tình về Python, Java, Architecture...
+   - *Lưu ý:* Khi đưa code, hãy giải thích dễ hiểu, đừng chỉ quăng code rồi im lặng.
+2. **Bot Commands (Chỉ nhắc khi user hỏi cách dùng):**
    - Nhạc: `!play {tên/link}` (Soundcloud).
-   - Pomodoro: `!pomo {phút học} {phút nghỉ}` (Mặc định 50/10).
+   - Học bài: `!pomo` (mặc định 50/10) hoặc `!pomo {phút học} {phút nghỉ}`.
    - Dừng: `!stop_pomo`, `!skip`.
-3. Thời gian: Luôn trả lời dựa trên context thời gian thực được cung cấp.
+3. **Thông tin thực tế (Search & Time):**
+   - Dùng `browser_search` để check thời tiết, tin tức, giá cả khi được hỏi.
+   - **Xử lý thông tin:** Đọc kết quả search -> Trả lời lại bằng giọng thân thiện của bot. Không copy nguyên văn kiểu robot.
 
-LƯU Ý QUAN TRỌNG:
-- Bạn có công cụ tìm kiếm (browser_search). Nếu người dùng hỏi thông tin cần cập nhật (thời tiết, giá cả, tin tức, code mới nhất), hãy dùng nó.
+### 🧠 SUY LUẬN & BỐI CẢNH (REASONING)
+- **Check Time:** Luôn để ý thời gian.
+  - *Khuya (>12h đêm):* Nhắc user ngủ sớm giữ sức khỏe.
+  - *Giờ ăn:* Nhắc user nhớ ăn uống đầy đủ.
+- **Check Cảm Xúc:**
+  - User vui -> Hùa theo, khen ngợi.
+  - User buồn/Stress -> An ủi, rủ nghe nhạc hoặc nghỉ ngơi ("thương thương", "cố xíu nữa thôi").
+
+### 💬 EXAMPLES (MẪU TRẢ LỜI)
+User: "Nay tui mệt quá bà ơi"
+Bot: "thương ghê 🥺 thôi nghỉ tay xíu đi, làm ly nước cho khỏe rồi tính tiếp. sức khỏe quan trọng nhất mà."
+
+User: "Code bài này sao tui quên rồi"
+Bot: "trùi, cái này hôm bữa mới học mà quên lẹ dữ 🤣 để tui nhắc lại cho nè, dùng vòng for như vầy..."
+
+User: "Mở nhạc gì chill chill đi"
+Bot: "ok la, để tui mở list lofi cho bà tập trung nha. gõ `!play lofi` nè ✨"
+
+User: "Thời tiết nay sao"
+Bot: [Search: 34 độ] -> "nay trời nóng lắm á, 34 độ lận. bà có ra đường nhớ che chắn kỹ nha ko bệnh á."
+
+User: "Mai thi rồi lo quá"
+Bot: "bình tĩnh nè, ôn kỹ mấy cái cơ bản là qua thôi. tin tui đi, bà làm được mà 💪"
 """
 
 # Lưu context chat theo Channel ID: {channel_id: deque(maxlen=15)}
@@ -81,7 +116,7 @@ class MusicEngine:
     def __init__(self):
         self.queue = [] # Queue bài hát user yêu cầu
         self.is_radio_mode = False # Cờ kiểm tra chế độ Radio
-        self.radio_url = "https://soundcloud.com/monstercat/sets/monstercat-lofi" # Link Lofi mặc định
+        self.radio_url = "https://soundcloud.com/relaxing-music-production/sets/piano-for-studying" # Link Lofi mặc định
 
     async def play_next(self, ctx):
         vc = ctx.voice_client
@@ -98,34 +133,47 @@ class MusicEngine:
             # Hết nhạc, không radio -> Im lặng (hoặc disconnect tuỳ logic)
             pass
 
-    async def play_source(self, ctx, search_query, title_display="Music"):
+async def play_source(self, ctx, search_query, title_display="Music"):
         vc = ctx.voice_client
         if not vc: return
 
-        # Tìm và lấy link stream
-        # Chạy trong executor để không chặn event loop
         loop = asyncio.get_event_loop()
         try:
             with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+                # Tải thông tin
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
                 
+                # Xử lý kết quả
                 if 'entries' in info:
-                    url = info['entries'][0]['url']
-                    title = info['entries'][0]['title']
+                    # Lấy bài đầu tiên để phát ngay
+                    first_entry = info['entries'][0]
+                    url = first_entry['url']
+                    title = first_entry['title']
+
+                    # --- LOGIC MỚI: XỬ LÝ PLAYLIST ---
+                    # Nếu input là Link URL (bắt đầu bằng http) và có nhiều hơn 1 bài
+                    if search_query.startswith("http") and len(info['entries']) > 1:
+                        added_count = 0
+                        # Duyệt các bài còn lại và thêm vào ĐẦU hàng đợi (để hát liên tục theo playlist)
+                        # Đảo ngược list để khi insert(0) nó sẽ đúng thứ tự
+                        for entry in reversed(info['entries'][1:]):
+                            self.queue.insert(0, (entry['url'], entry['title']))
+                            added_count += 1
+                        
+                        await ctx.send(f"✅ Đã phát hiện Playlist! Tui đã thêm {added_count} bài còn lại vào hàng đợi nha.", delete_after=10)
+                    # ---------------------------------
                 else:
                     url = info['url']
                     title = info['title']
                 
-                # Nếu là radio playlist, lấy tên hiển thị custom
+                # Logic Radio title (giữ nguyên)
                 if self.is_radio_mode and search_query == self.radio_url:
                      title = title_display
 
                 source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
                 
-                # Hàm callback khi hát xong
                 def after_play(e):
                     if e: print(f"Lỗi player: {e}")
-                    # Gọi đệ quy bài tiếp theo
                     asyncio.run_coroutine_threadsafe(self.play_next(ctx), bot.loop)
 
                 if vc.is_playing():
@@ -168,7 +216,7 @@ async def pomo_loop():
                 # Chuyển sang nghỉ
                 session.mode = "break"
                 session.current_time = session.start_break_dur * 60
-                await session.ctx.send(f"🔔 **Hết giờ học rồi!** Nghỉ {session.start_break_dur} phút xả hơi đi mấy ông.", delete_after=300)
+                await session.ctx.send(f"🔔 **Hết giờ học rồi!** Nghỉ {session.start_break_dur} phút xả hơi đi nà.", delete_after=300)
             else:
                 # Chuyển sang học
                 session.mode = "work"
@@ -180,10 +228,10 @@ async def pomo_loop():
             # 30% tỷ lệ hỏi thăm
             if random.random() < 0.3:
                 msgs = [
-                    "Ông ổn không đó? Uống miếng nước đi.",
-                    "Đứng dậy vươn vai cái nào, ngồi lâu đau lưng á.",
-                    "Mệt quá thì chợp mắt xíu đi nha.",
-                    "Cố lên, tui tin ông làm được mà!"
+                    "Pà ổn hông đó? Uống miếng nước đi.",
+                    "Đứng dậy vươn vai cái ikk, ngồi lâu đau lưng ó.",
+                    "Mệt quá thì chợp mắt xíu ikkk nha.",
+                    "Cố lên!!!"
                 ]
                 await session.ctx.send(f"@{session.ctx.author.display_name} {random.choice(msgs)}", delete_after=60)
 
@@ -192,7 +240,7 @@ async def pomo_loop():
 # Helper: Kiểm tra voice và auto-join
 async def ensure_voice(ctx):
     if not ctx.author.voice:
-        await ctx.send("Ông vô phòng Voice trước đi rồi tui mới phục vụ được!", delete_after=10)
+        await ctx.send("Úi vào phòng Voice trước đi rồi tui mới phục vụ được!", delete_after=10)
         return False
     
     if not ctx.voice_client:
@@ -217,7 +265,7 @@ async def play(ctx, *, query):
         ctx.voice_client.stop() # Stop để trigger 'after_play' -> check queue
     
     music_engine.queue.append((query, query)) # Lưu query vào queue
-    await ctx.send(f"✅ Đã thêm **{query}** vào hàng đợi.", delete_after=10)
+    await ctx.send(f"Đã thêm **{query}** vào hàng đợi.", delete_after=10)
     
     if not ctx.voice_client.is_playing():
         await music_engine.play_next(ctx)
@@ -226,7 +274,7 @@ async def play(ctx, *, query):
 async def skip(ctx):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
-        await ctx.send("⏭️ Đã skip!", delete_after=5)
+        await ctx.send("Đã skip!", delete_after=5)
 
 @bot.command()
 async def pomo(ctx, work: int = 50, break_time: int = 10):
@@ -297,8 +345,8 @@ async def get_ai_response(message, history, current_time):
         completion = await groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=messages,
-            temperature=0.8, # Giảm nhiệt độ xíu cho bớt "bay"
-            max_completion_tokens=4096,
+            temperature=0.6, # Giảm nhiệt độ xíu cho bớt "bay"
+            max_completion_tokens=2048,
             top_p=1,
             stream=True, # Streaming response
             tools=[{"type": "browser_search"}] # Native Search Tool
