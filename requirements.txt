@@ -1,8 +1,7 @@
 discord.py
-python-dotenv
+yt-dlp
 PyNaCl
 flask
-gunicorn
-yt-dlp
 groq
-pytz
+python-dotenv
+asyncio
